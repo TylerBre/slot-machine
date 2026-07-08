@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/repo-rm.json",
+  "title": "repo rm",
+  "description": "Forget a repo (config only - nothing on disk is touched). Clears the current repo if it was the one removed.",
+  "x-mcp": false,
+  "type": "object",
+  "required": ["repo"],
+  "additionalProperties": false,
+  "properties": {
+    "repo": { "type": "string", "description": "repo path or name to forget (sm repo ls shows known repos)" }
+  },
+  "x-cli": {
+    "path": ["repo", "rm"],
+    "args": {
+      "repo": { "positional": 0 }
+    }
+  }
+}

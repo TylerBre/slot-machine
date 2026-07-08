@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/inbox-report.schema.json",
+  "title": "inbox-report",
+  "description": "One worker->dispatcher report, appended as a JSONL line to a repo's inbox. Versioned via `v`; elevated by INBOX_ELEVATORS in inbox.mjs on read.",
+  "type": "object",
+  "required": ["v", "ts", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "ts": { "type": "integer", "description": "append time, epoch ms" },
+    "slot": { "type": ["string", "null"], "description": "originating slot label, or null" },
+    "message": { "type": "string", "description": "the report text" }
+  }
+}

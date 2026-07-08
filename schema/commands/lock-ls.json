@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/lock-ls.json",
+  "title": "lock ls",
+  "description": "List held resource locks: resource, holding slot (live/dead worker), age, task.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-cli": { "path": ["lock", "ls"], "args": {} }
+}

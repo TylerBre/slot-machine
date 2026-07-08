@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/msg-report.json",
+  "title": "msg report",
+  "description": "Worker -> dispatcher back-channel: post a message to the repo inbox (which the dispatcher reads with sm_msg_inbox). Run from within a slot; the slot is auto-detected, or pass it explicitly.",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["message"],
+  "additionalProperties": false,
+  "properties": {
+    "message": { "type": "string" },
+    "slot": { "type": "string" }
+  },
+  "x-cli": {
+    "path": ["msg", "report"],
+    "args": {
+      "message": { "positional": 0 },
+      "slot": { "flag": "--slot", "short": "s" }
+    }
+  }
+}

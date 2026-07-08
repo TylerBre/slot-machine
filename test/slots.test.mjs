@@ -2,33 +2,45 @@
 // Pure-logic tests always run; tmux integration tests run only when tmux and a
 // configured repo (`sm use`) with real slot worktrees are present, otherwise they skip.
 
-import { test, after } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  activeOverride,
+  classifySlot,
+  detectRole,
+  issueFromText,
+  lockStale,
+  paneActivity,
+  pickDispatchSlot,
+  preflightStatus,
   resolveSlots,
   selectPanes,
-  classifySlot,
-  lockStale,
-  pickDispatchSlot,
-  paneActivity,
-  detectRole,
-  preflightStatus,
-  activeOverride,
+} from '../lib/slots/pure.mjs';
+import {
+  addResource,
+  elevateLock,
+  elevateResourceLock,
+  LOCK_SCHEMA_VERSION,
   readLock,
-  writeLock,
+  readLockFull,
   removeLock,
-} from '../lib/slots.mjs';
+  removeResource,
+  RESOURCE_LOCK_SCHEMA_VERSION,
+  validateLock,
+  validateResourceLock,
+  writeLock,
+} from '../lib/slots/locks.mjs';
+import { LOCK_FILENAME } from '../lib/constants.mjs';
 import { resolveActive } from '../lib/context.mjs';
 import { formatSessions } from '../lib/format.mjs';
-import { appendReport, readInbox, clearInbox, waitForReports } from '../lib/inbox.mjs';
-import { recordUsage, readUsage, summarizeUsage } from '../lib/usage.mjs';
-import { claimResource, releaseResource, readResourceLock, listResourceLocks } from '../lib/locks.mjs';
+import { appendReport, clearInbox, readInbox, waitForReports } from '../lib/inbox.mjs';
+import { readUsage, recordUsage, summarizeUsage } from '../lib/usage.mjs';
 
 const LABELS = ['a', 'b', 'c', 'd', 'e', 'f']; // 6 slots for parser tests
 const set = (...xs) => new Set(xs);
@@ -86,7 +98,7 @@ test('selectPanes: no filter picks all slot panes, skips desk/non-slot', () => {
 
 test('selectPanes: filters to wanted labels, preserves order', () => {
   const docs = '/home/u/Documents';
-  const lines = ['a', 'b', 'c'].map((l, i) => `%${i} ${docs}/acme-slot-${l}`);
+  const lines = ['a', 'b', 'c'].map((lbl, idx) => `%${idx} ${docs}/acme-slot-${lbl}`);
   assert.deepEqual(selectPanes(lines, docs, 'acme-slot-', set('a', 'c')), [
     { pid: '%0', lbl: 'a' },
     { pid: '%2', lbl: 'c' },
@@ -110,6 +122,82 @@ test('formatSessions: pluralizes, pads, flags attached', () => {
 test('formatSessions: empty names the session prefix when given', () => {
   assert.equal(formatSessions([]), 'no running sessions');
   assert.equal(formatSessions([], 'acme'), 'no running acme* sessions');
+});
+
+test('issueFromText: parses a tracker id from a branch or task, generic (not tracker-specific)', () => {
+  assert.equal(issueFromText('tylerbreland/sc-10103/hr-offices-contains-filter'), 'sc-10103');
+  assert.equal(issueFromText('sc9584-data-services-research'), 'sc-9584');
+  assert.equal(issueFromText('fix sc-10132 physical office'), 'sc-10132');
+  assert.equal(issueFromText('proj-42 do a thing'), 'proj-42');
+  assert.equal(issueFromText('no-ticket/here'), null);
+  assert.equal(issueFromText(null), null);
+});
+
+test('elevateLock: a legacy lock elevates to the current schema, adopts cwd, drops the old slot key', () => {
+  // legacy locks carried `slot` (label) + `transcript`; both are dropped in favor of cwd identity
+  const up = elevateLock(
+    { slot: 'c', transcript: '/t/gemini-c/x.jsonl', task: 'fix sc-9812 thing', ts: 1 },
+    '/x/gemini-c',
+  );
+  assert.equal(up.v, LOCK_SCHEMA_VERSION);
+  assert.equal(up.cwd, '/x/gemini-c'); // cwd stamped from the read path
+  assert.equal('slot' in up, false);
+  assert.equal(up.issue, 'sc-9812'); // issue backfilled from the task
+  assert.deepEqual(validateLock(up), []); // an elevated legacy lock conforms to the schema
+  const cur = elevateLock({ v: 1, cwd: '/x/gemini-c', issue: 'sc-1', ts: 2 });
+  assert.equal(cur.v, 1);
+  assert.equal(cur.issue, 'sc-1');
+});
+
+test('validateLock: flags missing-required, wrong-type, and unexpected keys', () => {
+  assert.deepEqual(validateLock({ v: 1, cwd: '/x/gemini-c', ts: 1, issue: 'sc-1', session: null }), []);
+  assert.ok(validateLock({ cwd: '/x', ts: 1 }).some(prob => prob.includes('required \'v\'')));
+  assert.ok(validateLock({ v: 1, cwd: '/x', ts: 'nope' }).some(prob => prob.includes('\'ts\'')));
+  assert.ok(validateLock({ v: 1, cwd: '/x', ts: 1, bogus: 1 }).some(prob => prob.includes('unexpected')));
+});
+
+test('resource lock: elevate stamps version + drops legacy holder fields; validate is schema-driven', () => {
+  // legacy resource locks were separate files carrying slot/cwd/session; embedded records drop those
+  const up = elevateResourceLock({ resource: 'browser', slot: 'f', cwd: '/x/gemini-f', task: 'shot', ts: 1 });
+  assert.equal(up.v, RESOURCE_LOCK_SCHEMA_VERSION);
+  assert.equal('slot' in up, false);
+  assert.equal('cwd' in up, false); // holder identity now comes from the enclosing worktree lock
+  assert.equal('pid' in up, false); // the vestigial pid is dropped by the v1 -> v2 step
+  assert.deepEqual(validateResourceLock(up), []);
+  // the v1 -> v2 migration: a pre-fix v1 record still carrying `pid` elevates cleanly (pid stripped)
+  const stripped = elevateResourceLock({ v: 1, resource: 'browser', task: 'shot', pid: 4242, ts: 1 });
+  assert.equal(stripped.v, 2);
+  assert.equal('pid' in stripped, false);
+  assert.deepEqual(validateResourceLock(stripped), []);
+  assert.deepEqual(validateResourceLock({ v: RESOURCE_LOCK_SCHEMA_VERSION, resource: 'browser', ts: 2 }), []);
+  assert.ok(validateResourceLock({ resource: 'browser', ts: 1 }).some(prob => prob.includes('required \'v\'')));
+  assert.ok(
+    validateResourceLock({ v: RESOURCE_LOCK_SCHEMA_VERSION, resource: 'browser', cwd: '/x', ts: 1 }).some(prob =>
+      prob.includes('unexpected'),
+    ),
+  );
+});
+
+test('resources: add/remove are pure, dedup on re-claim, and validate via the worktree $ref', () => {
+  const base = { v: 1, cwd: '/x/gemini-f', ts: 1 };
+  const one = addResource(base, 'browser', 'shot');
+  assert.equal(one.resources.length, 1);
+  assert.equal(one.resources[0].resource, 'browser');
+  assert.equal('resources' in base, false); // pure: original untouched
+  const two = addResource(one, 'port', null);
+  const reclaim = addResource(two, 'browser', 'newshot'); // re-claim refreshes, no dupe
+  assert.equal(reclaim.resources.filter(res => res.resource === 'browser').length, 1);
+  assert.equal(reclaim.resources.find(res => res.resource === 'browser').task, 'newshot');
+  // the worktree schema $refs the resource schema, so a lock with embedded resources validates
+  assert.deepEqual(validateLock(reclaim), []);
+  const released = removeResource(reclaim, 'browser');
+  assert.equal(
+    released.resources.some(res => res.resource === 'browser'),
+    false,
+  );
+  // a malformed embedded resource is flagged with an indexed path
+  const bad = { ...base, resources: [{ v: RESOURCE_LOCK_SCHEMA_VERSION, resource: 'browser', ts: 'nope' }] };
+  assert.ok(validateLock(bad).some(prob => prob.includes('resources[0]')));
 });
 
 test('classifySlot: idle base branch is free', () => {
@@ -152,7 +240,7 @@ test('classifySlot: lock and dirty short-circuit to busy', () => {
 });
 
 test('classifySlot: open PR is waiting-merge (busy)', () => {
-  const v = classifySlot({
+  const cls = classifySlot({
     branch: 'ABC-1/x',
     baseBranch: 'acme-slot-c',
     locked: false,
@@ -160,37 +248,37 @@ test('classifySlot: open PR is waiting-merge (busy)', () => {
     ahead: 3,
     prs: [{ number: 4460, state: 'OPEN' }],
   });
-  assert.equal(v.free, false);
-  assert.equal(v.status, 'waiting-merge');
+  assert.equal(cls.free, false);
+  assert.equal(cls.status, 'waiting-merge');
 });
 
 test('lockStale: dead worker always stale; live worker stale only when transcript quiet/gone', () => {
-  const T = 1800;
+  const thr = 1800;
   // dead/absent worker -> stale regardless of transcript (the live pane, not git/transcript, is truth)
   assert.equal(
-    lockStale({ workerLive: false, transcript: '/t', transcriptAgeSec: 5, thresholdSec: T }),
+    lockStale({ workerLive: false, transcript: '/t', transcriptAgeSec: 5, thresholdSec: thr }),
     true,
   );
   assert.equal(
-    lockStale({ workerLive: false, transcript: null, transcriptAgeSec: null, thresholdSec: T }),
+    lockStale({ workerLive: false, transcript: null, transcriptAgeSec: null, thresholdSec: thr }),
     true,
   );
   // live worker + transcript -> stale only past threshold or when the transcript is gone
   assert.equal(
-    lockStale({ workerLive: true, transcript: '/t', transcriptAgeSec: 25, thresholdSec: T }),
+    lockStale({ workerLive: true, transcript: '/t', transcriptAgeSec: 25, thresholdSec: thr }),
     false,
   );
   assert.equal(
-    lockStale({ workerLive: true, transcript: '/t', transcriptAgeSec: 5000, thresholdSec: T }),
+    lockStale({ workerLive: true, transcript: '/t', transcriptAgeSec: 5000, thresholdSec: thr }),
     true,
   );
   assert.equal(
-    lockStale({ workerLive: true, transcript: '/t', transcriptAgeSec: null, thresholdSec: T }),
+    lockStale({ workerLive: true, transcript: '/t', transcriptAgeSec: null, thresholdSec: thr }),
     true,
   );
   // live worker + slot-written lock (no transcript) = a live claim, never stale
   assert.equal(
-    lockStale({ workerLive: true, transcript: null, transcriptAgeSec: null, thresholdSec: T }),
+    lockStale({ workerLive: true, transcript: null, transcriptAgeSec: null, thresholdSec: thr }),
     false,
   );
 });
@@ -206,7 +294,24 @@ test('writeLock/removeLock round-trip: slot-machine owns the lock file', () => {
     assert.equal(removeLock(dir), true);
     assert.equal(existsSync(join(dir, '.worktree-lock')), false);
     assert.equal(removeLock(dir), false); // already gone
-  } finally {
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('readLockFull: elevates a legacy embedded resource record on read', () => {
+  const dir = join(tmpdir(), `sm-embedres-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  try {
+    // a current lock, but with a v0 (legacy, no `v`) resource record embedded
+    const raw = { v: 1, cwd: dir, ts: 1, resources: [{ resource: 'browser', task: 'shot', ts: 2 }] };
+    writeFileSync(join(dir, LOCK_FILENAME), `${JSON.stringify(raw)}\n`);
+    const lock = readLockFull(dir);
+    assert.equal(lock.resources[0].v, RESOURCE_LOCK_SCHEMA_VERSION); // elevated
+    assert.equal(lock.resources[0].resource, 'browser');
+  }
+  finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -226,36 +331,16 @@ test('inbox: report round-trip (append/read/clear)', () => {
     assert.equal(typeof got[0].ts, 'number');
     clearInbox('t');
     assert.deepEqual(readInbox('t'), []);
-  } finally {
+  }
+  finally {
     rmSync(dir, { recursive: true, force: true });
     delete process.env.SLOT_INBOX_DIR;
   }
 });
 
-test('locks: resource claim is atomic - second claimant loses with holder info', () => {
-  const dir = join(tmpdir(), `slot-locks-${process.pid}`);
-  process.env.SLOT_LOCKS_DIR = dir;
-  try {
-    const first = claimResource('browser', { slot: 'f', task: 'shot' });
-    assert.equal(first.ok, true);
-    const second = claimResource('browser', { slot: 'h' });
-    assert.equal(second.ok, false);
-    assert.equal(second.holder.slot, 'f'); // loser sees the holder
-    assert.equal(readResourceLock('browser').task, 'shot');
-    assert.equal(listResourceLocks().length, 1);
-    assert.equal(releaseResource('browser'), true);
-    assert.equal(claimResource('browser', { slot: 'h' }).ok, true); // freed -> next claim wins
-    assert.equal(releaseResource('browser'), true);
-    assert.equal(releaseResource('browser'), false); // already gone
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-    delete process.env.SLOT_LOCKS_DIR;
-  }
-});
-
 test('usage: record round-trip + summarize (counts, errors, avg/max, sort by count)', () => {
-  const f = join(tmpdir(), `slot-usage-${process.pid}.jsonl`);
-  process.env.SLOT_USAGE_FILE = f;
+  const file = join(tmpdir(), `slot-usage-${process.pid}.jsonl`);
+  process.env.SLOT_USAGE_FILE = file;
   try {
     recordUsage({ cmd: 'free', ok: true, ms: 1200, tty: true });
     recordUsage({ cmd: 'free', ok: true, ms: 800, tty: false });
@@ -263,7 +348,7 @@ test('usage: record round-trip + summarize (counts, errors, avg/max, sort by cou
     assert.equal(readUsage().length, 3);
     const rows = summarizeUsage(readUsage());
     assert.deepEqual(
-      rows.map((r) => r.cmd),
+      rows.map(row => row.cmd),
       ['free', 'msg'],
     ); // sorted by count desc
     const free = rows[0];
@@ -273,8 +358,9 @@ test('usage: record round-trip + summarize (counts, errors, avg/max, sort by cou
     assert.equal(free.avgMs, 1000);
     assert.equal(free.maxMs, 1200);
     assert.equal(rows[1].errors, 1);
-  } finally {
-    rmSync(f, { force: true });
+  }
+  finally {
+    rmSync(file, { force: true });
     delete process.env.SLOT_USAGE_FILE;
   }
 });
@@ -285,13 +371,14 @@ test('inbox: waitForReports wakes on append (push, not poll)', async () => {
   try {
     // safetyMs high so only the fs event (or timeout) can resolve it; timeout low to bound the test
     const waiting = waitForReports('t', { timeoutMs: 3000, safetyMs: 60_000 });
-    setTimeout(() => appendReport('t', { slot: 'x', message: 'ping' }), 100);
+    setTimeout(appendReport, 100, 't', { slot: 'x', message: 'ping' });
     const got = await waiting;
     assert.equal(got.length, 1);
     assert.equal(got[0].message, 'ping');
     // no new report -> resolves [] at timeout instead of hanging
     assert.deepEqual(await waitForReports('t', { timeoutMs: 300, safetyMs: 60_000 }), []);
-  } finally {
+  }
+  finally {
     rmSync(dir, { recursive: true, force: true });
     delete process.env.SLOT_INBOX_DIR;
   }
@@ -305,7 +392,7 @@ test('pickDispatchSlot: free+live wins, then merged+live, needs a live worker', 
     { slot: 'd', status: 'free', worker: 'live' },
   ];
   assert.equal(pickDispatchSlot(rows).slot, 'd');
-  assert.equal(pickDispatchSlot(rows.filter((r) => r.slot !== 'd')).slot, 'b');
+  assert.equal(pickDispatchSlot(rows.filter(row => row.slot !== 'd')).slot, 'b');
   assert.equal(pickDispatchSlot([{ slot: 'c', status: 'free', worker: 'dead' }]), null);
   assert.equal(pickDispatchSlot([{ slot: 'a', status: 'locked', worker: 'live' }]), null);
 });
@@ -345,8 +432,8 @@ test('detectRole: inside a slot worktree = worker; elsewhere = dispatcher', () =
 });
 
 test('preflightStatus: slot ok, main-checkout flagged, elsewhere warned', () => {
-  const root = '/home/u/Documents',
-    repoDir = '/home/u/Documents/acme';
+  const root = '/home/u/Documents';
+  const repoDir = '/home/u/Documents/acme';
   const ctx = { root, prefix: 'acme-slot-', repoDir };
   assert.deepEqual(preflightStatus(`${root}/acme-slot-h/react-ui`, ctx), {
     ok: true,
@@ -467,21 +554,22 @@ const haveTmux = spawnSync('tmux', ['-V']).status === 0;
 // slot worktrees; on a machine with no config or no slots they skip cleanly.
 const active = haveTmux ? resolveActive([]) : null;
 const docs = active?.root ?? null;
-const realSlots =
-  docs && existsSync(docs)
+const realSlots
+  = docs && existsSync(docs)
     ? readdirSync(docs)
-        .filter((n) => n.startsWith(active.prefix) && statSync(join(docs, n)).isDirectory())
+        .filter(entry => entry.startsWith(active.prefix) && statSync(join(docs, entry)).isDirectory())
         .sort()
     : [];
 const repo = active?.repoDir ?? null;
 // Children write usage telemetry to a throwaway file, not the real ~/.config/slot log
 // (sm stats is the evidence stream the interface is refined from - tests must not salt it).
 const TEST_USAGE = join(tmpdir(), `sm-usage-itest-${process.pid}.jsonl`);
-const slotCmd = (...a) =>
-  spawnSync(process.execPath, [BIN, '--repo', repo, ...a], {
+function slotCmd(...args) {
+  return spawnSync(process.execPath, [BIN, '--repo', repo, ...args], {
     encoding: 'utf8',
     env: { ...process.env, SLOT_USAGE_FILE: TEST_USAGE },
   });
+}
 after(() => rmSync(TEST_USAGE, { force: true }));
 
 test(
@@ -494,13 +582,13 @@ test(
     const sess = `slot-nodetest-${process.pid}`; // not <session-prefix>* -> never auto-detected
     const log = join(tmpdir(), `${sess}.log`);
     const pick = realSlots.slice(0, 4);
-    const tmux = (...a) => spawnSync('tmux', a, { encoding: 'utf8' });
+    const tmux = (...args) => spawnSync('tmux', args, { encoding: 'utf8' });
 
     rmSync(log, { force: true });
     // msg send claims the targeted slots (writes real .worktree-lock files) - snapshot the
     // lock files now and restore them after, so the test leaves no trace on real slots.
-    const lockFiles = [0, 2].map((i) => join(docs, pick[i], '.worktree-lock'));
-    const savedLocks = lockFiles.map((p) => (existsSync(p) ? readFileSync(p, 'utf8') : null));
+    const lockFiles = [0, 2].map(idx => join(docs, pick[idx], '.worktree-lock'));
+    const savedLocks = lockFiles.map(lockPath => (existsSync(lockPath) ? readFileSync(lockPath, 'utf8') : null));
     try {
       tmux('new-session', '-d', '-s', sess, '-n', 'desk', '-c', docs);
       tmux(
@@ -516,7 +604,7 @@ test(
         '-c',
         `while IFS= read -r x; do printf '%s:%s\\n' "$(basename "$PWD")" "$x" >> ${log}; done`,
       );
-      for (const d of pick.slice(1)) {
+      for (const dir of pick.slice(1)) {
         tmux(
           'split-window',
           '-P',
@@ -526,15 +614,15 @@ test(
           '-t',
           sess,
           '-c',
-          join(docs, d),
+          join(docs, dir),
           'bash',
           '-c',
           `while IFS= read -r x; do printf '%s:%s\\n' "$(basename "$PWD")" "$x" >> ${log}; done`,
         );
       }
       // Send to panes 0 and 2 of the 4 logging slot panes; 1 and 3 must stay silent.
-      const label = (d) => d.slice(active.prefix.length);
-      const r = slotCmd(
+      const label = dir => dir.slice(active.prefix.length);
+      const result = slotCmd(
         'msg',
         'send',
         'hello world',
@@ -543,21 +631,24 @@ test(
         '-t',
         sess,
       );
-      assert.equal(r.status, 0, r.stderr);
-      assert.match(r.stdout, /sent to 2 slot pane\(s\)/);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /delivered to 2\/2 slot pane\(s\)/); // verified-submit count
 
       let lines = [];
-      for (let i = 0; i < 40; i++) {
-        if (existsSync(log)) lines = readFileSync(log, 'utf8').split('\n').filter(Boolean);
-        if (lines.length >= 2) break;
-        await new Promise((res) => setTimeout(res, 50));
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (existsSync(log))
+          lines = readFileSync(log, 'utf8').split('\n').filter(Boolean);
+        if (lines.length >= 2)
+          break;
+        await new Promise(res => setTimeout(res, 50));
       }
       assert.deepEqual(lines.sort(), [`${pick[0]}:hello world`, `${pick[2]}:hello world`]);
-    } finally {
+    }
+    finally {
       tmux('kill-session', '-t', sess);
       rmSync(log, { force: true });
-      lockFiles.forEach((p, i) =>
-        savedLocks[i] == null ? rmSync(p, { force: true }) : writeFileSync(p, savedLocks[i]),
+      lockFiles.forEach((lockPath, idx) =>
+        savedLocks[idx] == null ? rmSync(lockPath, { force: true }) : writeFileSync(lockPath, savedLocks[idx]),
       );
     }
   },
@@ -572,15 +663,16 @@ test(
   { skip: repo ? false : 'need tmux + a configured repo' },
   () => {
     const name = `slot-killtest-${process.pid}`;
-    const tmux = (...a) => spawnSync('tmux', a, { encoding: 'utf8' });
+    const tmux = (...args) => spawnSync('tmux', args, { encoding: 'utf8' });
     tmux('new-session', '-d', '-s', name);
     try {
       assert.equal(tmux('has-session', '-t', name).status, 0, 'setup: session should exist');
-      const r = slotCmd('session', 'kill', name);
-      assert.equal(r.status, 0, r.stderr);
-      assert.match(r.stdout, new RegExp(`killed '${name}'`));
+      const res = slotCmd('session', 'kill', name);
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.stdout, new RegExp(`killed '${name}'`));
       assert.notEqual(tmux('has-session', '-t', name).status, 0, 'session should be gone');
-    } finally {
+    }
+    finally {
       tmux('kill-session', '-t', name); // no-op when the test passed
     }
   },

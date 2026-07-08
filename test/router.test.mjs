@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ROUTES, NAMESPACES, helpKey } from '../lib/router.mjs';
-import { HELP, SECTIONS, helpFor, USAGE, VOCAB, ROLE_DISPATCHER, ROLE_WORKER } from '../lib/constants.mjs';
+import { helpKey, NAMESPACES, ROUTES } from '../lib/router.mjs';
+import { HELP, helpFor, ROLE_DISPATCHER, ROLE_WORKER, SECTIONS, USAGE, VOCAB } from '../lib/help.mjs';
 
 test('every route has a handler function', () => {
   for (const [route, fn] of Object.entries(ROUTES)) {
@@ -59,7 +59,7 @@ test('teaching text never uses the dead vocabulary (tenant/scratch/orchestrator/
   const dead = /\b(tenant|scratch|orchestrator|agent)s?\b/i;
   const teaching = { USAGE, VOCAB, ROLE_DISPATCHER, ROLE_WORKER, ...SECTIONS, ...HELP };
   for (const [key, text] of Object.entries(teaching)) {
-    const m = text.match(dead);
-    assert.ok(!m, `'${key}' still says '${m?.[0]}'`);
+    const match = text.match(dead);
+    assert.ok(!match, `'${key}' still says '${match?.[0]}'`);
   }
 });

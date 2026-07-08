@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { BINS, PKG_ROOT, linkStatus } from '../lib/setup.mjs';
+import { BINS, linkStatus, PKG_ROOT } from '../lib/setup.mjs';
 
 test('BINS mirrors package.json bin exactly', () => {
   const pkg = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'));
@@ -13,8 +13,8 @@ test('BINS mirrors package.json bin exactly', () => {
 
 test('linkStatus classifies every bin without throwing', () => {
   for (const name of BINS) {
-    const s = linkStatus(name);
-    assert.ok(['ok', 'wrong', 'occupied', 'missing'].includes(s.status), `${name}: ${s.status}`);
-    assert.ok(s.target.endsWith(`/bin/${name}`));
+    const result = linkStatus(name);
+    assert.ok(['ok', 'wrong', 'occupied', 'missing'].includes(result.status), `${name}: ${result.status}`);
+    assert.ok(result.target.endsWith(`/bin/${name}`));
   }
 });

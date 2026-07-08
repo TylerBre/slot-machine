@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/worker-kill.json",
+  "title": "worker kill",
+  "description": "End one worker's process; its pane falls back to a shell (worker shows dead) and the session stays intact. The conversation survives on disk.",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["slot"],
+  "additionalProperties": false,
+  "properties": {
+    "slot": { "type": "string" }
+  },
+  "x-cli": {
+    "path": ["worker", "kill"],
+    "args": {
+      "slot": { "positional": 0 }
+    }
+  }
+}

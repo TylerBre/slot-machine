@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/stats.json",
+  "title": "stats",
+  "description": "Per-command usage from the local usage log: what gets used, what fails, what's slow.",
+  "x-mcp": false,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "days": { "type": "string", "description": "only include usage from the last N days" },
+    "clear": { "type": "boolean", "description": "clear the usage log after printing" }
+  },
+  "x-cli": {
+    "path": ["stats"],
+    "args": {
+      "days": { "flag": "--days", "short": "d" },
+      "clear": { "flag": "--clear" }
+    }
+  }
+}

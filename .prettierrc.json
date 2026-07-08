@@ -1,5 +1,0 @@
-{
-  "printWidth": 110,
-  "singleQuote": true,
-  "overrides": [{ "files": ["bin/*"], "options": { "parser": "babel" } }]
-}

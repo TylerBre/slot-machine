@@ -2,15 +2,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { upsertBlock, TMUX_BLOCK } from '../lib/tmuxconf.mjs';
+import { TMUX_BLOCK, upsertBlock } from '../lib/tmuxconf.mjs';
 
 test('upsertBlock: appends to an empty conf', () => {
-  assert.equal(upsertBlock(''), TMUX_BLOCK + '\n');
+  assert.equal(upsertBlock(''), `${TMUX_BLOCK}\n`);
 });
 
 test('upsertBlock: appends after existing content with a blank line', () => {
   const out = upsertBlock('set -g mouse on\n');
-  assert.equal(out, 'set -g mouse on\n\n' + TMUX_BLOCK + '\n');
+  assert.equal(out, `set -g mouse on\n\n${TMUX_BLOCK}\n`);
 });
 
 test('upsertBlock: idempotent - second run changes nothing', () => {
@@ -19,8 +19,8 @@ test('upsertBlock: idempotent - second run changes nothing', () => {
 });
 
 test('upsertBlock: replaces a drifted block in place, keeping surroundings', () => {
-  const drifted =
-    'before\n\n# >>> slot-machine >>>\nset -g pane-border-status off\n# <<< slot-machine <<<\n\nafter\n';
+  const drifted
+    = 'before\n\n# >>> slot-machine >>>\nset -g pane-border-status off\n# <<< slot-machine <<<\n\nafter\n';
   const out = upsertBlock(drifted);
   assert.ok(out.startsWith('before\n'));
   assert.ok(out.includes(TMUX_BLOCK));

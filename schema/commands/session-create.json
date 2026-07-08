@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/session-create.json",
+  "title": "session create",
+  "description": "Build a tmux session laying out every slot worktree, N panes per window.",
+  "x-mcp": false,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "panes": { "type": "string", "description": "panes per window: 2, 3, or 4 (default: 3)" },
+    "session": { "type": "string", "description": "session name (default: derived from the panes count)" },
+    "kill": { "type": "boolean", "description": "kill an existing session with this name first" }
+  },
+  "x-cli": {
+    "path": ["session", "create"],
+    "args": {
+      "panes": { "positional": 0 },
+      "session": { "positional": 1 },
+      "kill": { "flag": "--kill", "short": "k" }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/repo-use.json",
+  "title": "repo use",
+  "description": "Select the current repo - the git repo the other tools act on (root/prefix/session/base are derived from it).",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["repo"],
+  "additionalProperties": false,
+  "properties": {
+    "repo": { "type": "string", "description": "path to the git repo (main worktree)" },
+    "prefix": { "type": "string" },
+    "session": { "type": "string" },
+    "base": { "type": "string" }
+  },
+  "x-cli": {
+    "path": ["repo", "use"],
+    "args": {
+      "repo": { "positional": 0 },
+      "prefix": { "flag": "--prefix" },
+      "session": { "flag": "--session" },
+      "base": { "flag": "--base" }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/worker-ps.json",
+  "title": "worker ps",
+  "description": "Every worker at a glance - the dispatcher's cheap poll (tmux + locks only, no git/gh). One row per slot: worker live/dead/none, activity working/idle/waiting, and the task its lock carries. Use sm_slot_ls when you need reusability.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "watch": { "type": "boolean", "description": "redraw the table on an interval until Ctrl-C" }
+  },
+  "x-cli": {
+    "path": ["worker", "ps"],
+    "args": {
+      "watch": { "flag": "--watch", "mcpHidden": true }
+    }
+  }
+}

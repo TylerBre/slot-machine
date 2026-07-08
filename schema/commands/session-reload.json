@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/session-reload.json",
+  "title": "session reload",
+  "description": "Bring a running session up to date with the slot inventory: every slot without a pane gets a fresh worker pane appended (resuming its conversation); existing panes untouched. Use after sm_slot_create.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "session": { "type": "string", "description": "target session (default: the sole running one)" }
+  },
+  "x-cli": {
+    "path": ["session", "reload"],
+    "args": {
+      "session": { "positional": 0 }
+    }
+  }
+}

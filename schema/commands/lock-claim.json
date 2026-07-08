@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/lock-claim.json",
+  "title": "lock claim",
+  "description": "Lock a slot (worktree lock) OR a named shared resource like \"browser\" (atomic machine-level lock - claim BEFORE using the shared authenticated browser, release right after). wait=true queues until free; force=true steals. Losing a resource claim returns the holder.",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "description": "slot label or resource name (e.g. \"browser\")" },
+    "task": { "type": "string", "description": "optional short label stored in the lock" },
+    "slot": { "type": "string", "description": "which slot holds a resource (default: cwd auto-detect)" },
+    "wait": { "type": "boolean", "description": "queue until the resource frees" },
+    "force": { "type": "boolean", "description": "steal the lock" },
+    "session": { "type": "string", "description": "tmux session recorded in a slot's worktree lock" }
+  },
+  "x-cli": {
+    "path": ["lock", "claim"],
+    "args": {
+      "name": { "positional": 0 },
+      "task": { "positional": 1 },
+      "slot": { "flag": "--slot", "short": "s" },
+      "wait": { "flag": "--wait", "short": "w" },
+      "force": { "flag": "--force" },
+      "session": { "flag": "--session", "short": "t", "mcpHidden": true }
+    }
+  }
+}

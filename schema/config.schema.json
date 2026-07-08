@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/config.schema.json",
+  "title": "config",
+  "description": "sm's persisted config at ~/.config/slot/config.json: the known repos and the current one. Versioned via `v`; elevated by CONFIG_ELEVATORS in context.mjs before use. Source of truth for the config shape.",
+  "type": "object",
+  "required": ["v", "current", "repos"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "current": { "type": ["string", "null"], "description": "main-worktree dir of the current repo, or null" },
+    "repos": {
+      "type": "object",
+      "description": "map of repo main-worktree dir -> derived context",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "root", "prefix", "sessionPrefix", "baseBranch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "description": "repo name (basename)" },
+          "root": { "type": "string", "description": "dir holding the slots (repo parent)" },
+          "prefix": { "type": "string", "description": "worktree/branch prefix, e.g. acme-slot-" },
+          "sessionPrefix": { "type": "string", "description": "tmux session name prefix" },
+          "baseBranch": { "type": "string", "description": "the repo's base branch" }
+        }
+      }
+    }
+  }
+}

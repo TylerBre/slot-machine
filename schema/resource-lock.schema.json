@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/resource-lock.schema.json",
+  "title": "resource-lock",
+  "description": "A claim on a shared machine-level resource (the authenticated browser, a port, a proxy). NOT a separate file: resource claims are embedded in the `resources` array of a worktree lock (worktree-lock.schema.json references this one by $ref). The enclosing worktree lock's cwd/session identify the holder; mutual exclusion is a scan across all worktree locks (see slots.mjs claimResource). Versioned via `v`; a claim written by an older sm is upgraded by elevateResourceLock before use.",
+  "type": "object",
+  "required": ["v", "resource", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "type": "integer", "const": 2, "description": "schema version" },
+    "resource": { "type": "string", "description": "resource name, e.g. \"browser\"" },
+    "task": { "type": ["string", "null"], "description": "one-line reason the resource was claimed" },
+    "ts": { "type": "integer", "description": "claim time, epoch ms" }
+  }
+}

@@ -2,10 +2,10 @@
 // inbox, locks, and usage all live under it) and a scratch git repo with no origin remote.
 // No tmux session is created and no worker is spawned; tmux-dependent state simply reads
 // as 'none'. Tests run in file order and share the fixture.
-import { test, after } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,19 +15,29 @@ const SM = fileURLToPath(new URL('../bin/sm', import.meta.url));
 const FAKE = realpathSync(mkdtempSync(join(tmpdir(), 'sm-cli-'))); // realpath: macOS tmpdir is a /private symlink
 const repoDir = join(FAKE, 'code', 'myapp');
 mkdirSync(repoDir, { recursive: true });
-const git = (...a) => spawnSync('git', ['-C', repoDir, ...a], { encoding: 'utf8' });
+const git = (...args) => spawnSync('git', ['-C', repoDir, ...args], { encoding: 'utf8' });
 git('init', '-q', '-b', 'main');
 git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
 
 // TMUX_TMPDIR points at an empty dir (and TMUX is dropped) so children never see the
 // machine's real tmux server - worker 'none' is guaranteed, not a coincidence.
-const env = { ...process.env, HOME: FAKE, NO_COLOR: '1', TMUX_TMPDIR: join(FAKE, 'no-tmux') };
+// SLOT_NO_RESOURCE_KILL: the release-browser test exercises the release path through the real
+// binary; without this seam resourceProcessPids('browser') would scan + SIGTERM real host
+// Chromium (e.g. a running Playwright-MCP browser). It keeps the test hermetic.
+const env = {
+  ...process.env,
+  HOME: FAKE,
+  NO_COLOR: '1',
+  TMUX_TMPDIR: join(FAKE, 'no-tmux'),
+  SLOT_NO_RESOURCE_KILL: '1',
+};
 delete env.TMUX;
 mkdirSync(env.TMUX_TMPDIR, { recursive: true });
-const runBin = (bin, args, opts = {}) =>
-  spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env, ...opts });
+function runBin(bin, args, opts = {}) {
+  return spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env, ...opts });
+}
 const sm = (...args) => runBin(SM, args);
-const json = (r) => JSON.parse(r.stdout);
+const json = result => JSON.parse(result.stdout);
 
 after(() => rmSync(FAKE, { recursive: true, force: true }));
 
@@ -54,10 +64,10 @@ test('cli: help surfaces work without a repo', () => {
 });
 
 test('cli: repo use derives and persists; ls/inspect/rm manage the config', () => {
-  const r = sm('repo', 'use', repoDir);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /using myapp/);
-  assert.match(r.stdout, /prefix myapp-slot-/);
+  const result = sm('repo', 'use', repoDir);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /using myapp/);
+  assert.match(result.stdout, /prefix myapp-slot-/);
   const status = json(sm('repo', 'ls', '--json'));
   assert.equal(status.current, repoDir);
   assert.ok(status.repos[repoDir]);
@@ -77,11 +87,87 @@ test('cli: repo use derives and persists; ls/inspect/rm manage the config', () =
   assert.equal(sm('repo', 'use', repoDir).status, 0);
 });
 
+test('cli: a corrupt config fails loud, not silently', () => {
+  const configPath = join(FAKE, '.config', 'slot', 'config.json');
+  const saved = readFileSync(configPath, 'utf8'); // suite has a valid config by now
+  try {
+    writeFileSync(configPath, '{"v":1,"current":123,"repos":{}}'); // current must be string|null
+    const result = sm('slot', 'ls');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /config at .* is invalid/);
+  }
+  finally {
+    writeFileSync(configPath, saved); // restore for later tests
+  }
+});
+
+test('cli: an unparseable config fails loud, not silently', () => {
+  const configPath = join(FAKE, '.config', 'slot', 'config.json');
+  const saved = readFileSync(configPath, 'utf8');
+  try {
+    writeFileSync(configPath, '{ not valid json');
+    const result = sm('slot', 'ls');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /config at .* is not valid JSON/);
+  }
+  finally {
+    writeFileSync(configPath, saved);
+  }
+});
+
+test('cli: doctor survives an invalid config and reports it as a failed check', () => {
+  const configPath = join(FAKE, '.config', 'slot', 'config.json');
+  const saved = readFileSync(configPath, 'utf8'); // suite has a valid config by now
+  try {
+    writeFileSync(configPath, '{"v":1,"current":123,"repos":{}}'); // schema-invalid
+    const result = sm('doctor', '--json');
+    const rep = json(result); // doctor still emitted its report - it did not die at import/load
+    const names = rep.checks.map(check => check.name);
+    assert.ok(names.includes('node'), 'doctor did not run its other checks'); // machinery ran
+    const configCheck = rep.checks.find(check => check.name === 'config');
+    assert.ok(configCheck, 'doctor missing the config health check');
+    assert.equal(configCheck.level, 'fail'); // the bad config is a failed check, not a silent pass
+    assert.match(configCheck.detail, /config at .* is invalid/);
+    assert.equal(rep.ok, false);
+  }
+  finally {
+    writeFileSync(configPath, saved); // restore for later tests
+  }
+});
+
+test('cli: help survives an invalid config (the escape hatch)', () => {
+  const configPath = join(FAKE, '.config', 'slot', 'config.json');
+  const saved = readFileSync(configPath, 'utf8');
+  try {
+    writeFileSync(configPath, '{ not valid json');
+    const result = sm('help');
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /sm - slot machine/);
+  }
+  finally {
+    writeFileSync(configPath, saved);
+  }
+});
+
+test('cli: a non-object config fails loud (M2)', () => {
+  const configPath = join(FAKE, '.config', 'slot', 'config.json');
+  const saved = readFileSync(configPath, 'utf8');
+  try {
+    writeFileSync(configPath, '[1,2,3]'); // valid JSON, but not an object
+    const result = sm('slot', 'ls');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /config at .* is invalid/);
+  }
+  finally {
+    writeFileSync(configPath, saved);
+  }
+});
+
 test('cli: slot create makes a worktree and reports the real start point', () => {
-  const a = json(sm('slot', 'create', 'a', '--json'));
-  assert.equal(a.slot, 'a');
-  assert.equal(a.branch, 'myapp-slot-a');
-  assert.equal(a.from, 'main'); // no origin remote -> fell back to the local base
+  const created = json(sm('slot', 'create', 'a', '--json'));
+  assert.equal(created.slot, 'a');
+  assert.equal(created.branch, 'myapp-slot-a');
+  assert.equal(created.from, 'main'); // no origin remote -> fell back to the local base
   assert.ok(existsSync(join(FAKE, 'code', 'myapp-slot-a', '.git')));
   assert.match(sm('slot', 'create', 'a').stderr, /already exists/);
   assert.equal(json(sm('slot', 'create', 'b', '--json')).slot, 'b');
@@ -90,20 +176,20 @@ test('cli: slot create makes a worktree and reports the real start point', () =>
 test('cli: slot ls classifies fresh slots as free (worker none)', () => {
   const rows = json(sm('slot', 'ls', '--json'));
   assert.deepEqual(
-    rows.map((r) => r.slot),
+    rows.map(row => row.slot),
     ['a', 'b'],
   );
-  for (const r of rows) {
-    assert.equal(r.free, true);
-    assert.equal(r.status, 'free');
-    assert.equal(r.worker, 'none'); // no pane anywhere
-    assert.equal(r.branch, `myapp-slot-${r.slot}`);
+  for (const row of rows) {
+    assert.equal(row.free, true);
+    assert.equal(row.status, 'free');
+    assert.equal(row.worker, 'none'); // no pane anywhere
+    assert.equal(row.branch, `myapp-slot-${row.slot}`);
   }
 });
 
 test('cli: slot lock claim marks busy; no live worker means stale; release frees', () => {
   assert.equal(sm('lock', 'claim', 'a', 'ABC-1').status, 0);
-  const row = json(sm('slot', 'ls', '--json')).find((r) => r.slot === 'a');
+  const row = json(sm('slot', 'ls', '--json')).find(entry => entry.slot === 'a');
   assert.equal(row.free, false);
   assert.equal(row.status, 'stale'); // locked, but no live worker holds it
   const inspected = json(sm('slot', 'inspect', 'a', '--json'));
@@ -111,33 +197,39 @@ test('cli: slot lock claim marks busy; no live worker means stale; release frees
   assert.equal(inspected.lock.task, 'ABC-1'); // the lock's task is part of the record
   const rel = json(sm('lock', 'release', 'a', '--json'));
   assert.equal(rel.released, true);
-  assert.equal(json(sm('slot', 'ls', '--json')).find((r) => r.slot === 'a').status, 'free');
+  assert.equal(json(sm('slot', 'ls', '--json')).find(entry => entry.slot === 'a').status, 'free');
 });
 
 test('cli: resource locks are exclusive with holder info', () => {
-  assert.equal(json(sm('lock', 'claim', 'browser', 'shot', '--json')).claimed, true);
-  const lose = sm('lock', 'claim', 'browser', '--json');
+  // one lockfile: a resource claim is embedded in a slot's worktree lock, so the slot must be locked
+  sm('lock', 'claim', 'a', 'holds-browser');
+  assert.equal(json(sm('lock', 'claim', 'browser', 'shot', '-s', 'a', '--json')).claimed, true);
+  const lose = sm('lock', 'claim', 'browser', '-s', 'b', '--json'); // held by slot a; b cannot take it
   assert.equal(lose.status, 1);
-  assert.equal(json(lose).claimed, false);
+  const loseJson = json(lose);
+  assert.equal(loseJson.claimed, false);
+  assert.equal(loseJson.holder.slot, 'a'); // loser sees which slot holds it
   const held = json(sm('lock', 'ls', '--json'));
   assert.equal(held.length, 1);
   assert.equal(held[0].resource, 'browser');
+  assert.equal(held[0].slot, 'a');
   assert.equal(json(sm('lock', 'release', 'browser', '--json')).released, true);
+  sm('lock', 'release', 'a'); // free slot a's lock for later tests
 });
 
 test('cli: worker ps shows every slot cheaply, with the task its lock carries', () => {
   sm('lock', 'claim', 'b', 'ps-task');
   const rows = json(sm('worker', 'ps', '--json'));
   assert.deepEqual(
-    rows.map((r) => r.slot),
+    rows.map(row => row.slot),
     ['a', 'b'],
   );
-  for (const r of rows) {
-    assert.equal(r.worker, 'none'); // hermetic: no pane anywhere
-    assert.equal(r.activity, '-');
+  for (const row of rows) {
+    assert.equal(row.worker, 'none'); // hermetic: no pane anywhere
+    assert.equal(row.activity, '-');
   }
-  assert.equal(rows.find((r) => r.slot === 'b').task, 'ps-task');
-  assert.equal(rows.find((r) => r.slot === 'a').task, null);
+  assert.equal(rows.find(row => row.slot === 'b').task, 'ps-task');
+  assert.equal(rows.find(row => row.slot === 'a').task, null);
   sm('lock', 'release', 'b');
 });
 
@@ -161,7 +253,7 @@ test('cli: worker logs and kill fail cleanly without a pane', () => {
 });
 
 test('cli: preflight judges cwd - slot ok, main checkout stops, elsewhere warns', () => {
-  const at = (cwd) => json(runBin(SM, ['worker', 'preflight', '--json'], { cwd }));
+  const at = cwd => json(runBin(SM, ['worker', 'preflight', '--json'], { cwd }));
   assert.deepEqual(at(join(FAKE, 'code', 'myapp-slot-a')), {
     ok: true,
     status: 'slot',
@@ -193,23 +285,23 @@ test('cli: report -> inbox round-trip through the binary', () => {
 });
 
 test('cli: stats records canonical route spellings', () => {
-  const cmds = json(sm('stats', '--json')).map((r) => r.cmd);
+  const cmds = json(sm('stats', '--json')).map(row => row.cmd);
   assert.ok(cmds.includes('slot ls'), `expected 'slot ls' in ${cmds}`);
   assert.ok(cmds.includes('slot create'), `expected 'slot create' in ${cmds}`);
 });
 
 test('cli: reset returns a slot to a clean base and releases its lock', () => {
   sm('lock', 'claim', 'a', 'stale-task');
-  const r = sm('slot', 'reset', 'a', '--json');
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(json(r).reset, true);
+  const result = sm('slot', 'reset', 'a', '--json');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(json(result).reset, true);
   assert.equal(existsSync(join(FAKE, 'code', 'myapp-slot-a', '.worktree-lock')), false);
-  assert.equal(json(sm('slot', 'ls', '--json')).find((x) => x.slot === 'a').status, 'free');
+  assert.equal(json(sm('slot', 'ls', '--json')).find(row => row.slot === 'a').status, 'free');
 });
 
 test('cli: slot rm removes the worktree', () => {
-  const r = json(sm('slot', 'rm', 'b', '--json'));
-  assert.equal(r.removed, true);
+  const result = json(sm('slot', 'rm', 'b', '--json'));
+  assert.equal(result.removed, true);
   assert.equal(existsSync(join(FAKE, 'code', 'myapp-slot-b')), false);
   assert.match(sm('slot', 'rm', 'b').stderr, /no worktree/);
 });
@@ -218,12 +310,12 @@ test(
   'cli: doctor reports repo health and exits 0 on a sane setup',
   { skip: spawnSync('tmux', ['-V']).status !== 0 ? 'doctor ok requires tmux installed' : false },
   () => {
-    const r = sm('doctor', '--json');
-    const rep = json(r);
+    const result = sm('doctor', '--json');
+    const rep = json(result);
     assert.equal(rep.ok, true, JSON.stringify(rep.checks));
-    const names = rep.checks.map((c) => c.name);
-    for (const n of ['tmux', 'git', 'node', 'claude', 'repo', 'slots', 'bin links', 'mcp server']) {
-      assert.ok(names.includes(n), `doctor missing check '${n}'`);
+    const names = rep.checks.map(check => check.name);
+    for (const name of ['tmux', 'git', 'node', 'claude', 'repo', 'slots', 'bin links', 'mcp server']) {
+      assert.ok(names.includes(name), `doctor missing check '${name}'`);
     }
   },
 );

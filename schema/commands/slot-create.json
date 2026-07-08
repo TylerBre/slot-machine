@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/slot-create.json",
+  "title": "slot create",
+  "description": "Create a new slot worktree (<root>/<prefix><label>) on branch <prefix><label> off origin/<base>. Does not set up app-specific env/ports.",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["label"],
+  "additionalProperties": false,
+  "properties": {
+    "label": { "type": "string" },
+    "base": { "type": "string", "description": "base branch to fork from (default: the repo's base branch)" }
+  },
+  "x-cli": {
+    "path": ["slot", "create"],
+    "args": {
+      "label": { "positional": 0 },
+      "base": { "positional": 1 }
+    }
+  }
+}

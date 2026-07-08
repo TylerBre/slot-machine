@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/msg-inbox.json",
+  "title": "msg inbox",
+  "description": "Dispatcher: read messages workers posted via sm_msg_report (oldest first). clear=true consumes them after reading.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "clear": { "type": "boolean" },
+    "number": { "type": "string", "description": "show only the most recent N reports" },
+    "newestFirst": { "type": "boolean", "description": "newest report first; default oldest first" },
+    "watch": { "type": "boolean", "description": "block until the next report lands, then print + exit" }
+  },
+  "x-cli": {
+    "path": ["msg", "inbox"],
+    "args": {
+      "clear": { "flag": "--clear" },
+      "number": { "flag": "--number", "short": "n" },
+      "newestFirst": { "flag": "--newest-first" },
+      "watch": { "flag": "--watch", "mcpHidden": true }
+    }
+  }
+}

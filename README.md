@@ -6,7 +6,7 @@ Run a fleet of Claude Code agents against one repo, in parallel, without them st
 each other - from a single tmux session you drive like a dispatcher.
 
 `sm` lays out one git worktree ("slot") per agent ("worker"), builds a tmux session with
-one worker pane per slot plus a control window (the "desk"), and gives you the primitives
+one worker pane per slot plus a control window (the "desk"), and gives you the operations
 a dispatcher needs: see who's free, hand off work, check in, and reclaim finished slots.
 It ships as a CLI (`sm`) and a zero-dependency MCP server, so both you and your agents can
 drive it.
@@ -24,11 +24,11 @@ actually exists for:
   silence doesn't mean idle - a slow tool call looks identical to done.
 - **"How do workers reach you?"** Scraping their panes is lossy; results get stranded
   in scrollback.
-- **Shared singletons** - an authenticated browser, a port - get raced and killed.
+- **Shared one-of-a-kind resources** - an authenticated browser, a port - get raced and killed.
 
 What the workflow gains you: N tracks of work in flight with one dispatcher (you, or
 an agent in the desk seat) at the wheel, safe reuse decided from evidence, and a structured
-loop - find capacity, hand off, check in, reclaim - instead of tmux spelunking.
+loop - find capacity, hand off, check in, reclaim - instead of digging through tmux by hand.
 
 ## The mental model
 
@@ -61,8 +61,8 @@ slot machine is opinionated. The opinions, explicitly:
    reclaims stale ones deterministically).
 4. **Structured back-channel over pane-scraping.** Reporting via `sm msg report` is part
    of a worker being done.
-5. **Shared singletons are locked, not raced.** `sm lock claim browser` is atomic; the
-   loser learns who holds it instead of killing it.
+5. **Shared one-of-a-kind resources are locked, not raced.** `sm lock claim browser` is
+   atomic; the loser learns who holds it instead of killing it.
 6. **Rigid vocabulary.** Every concept has exactly one name (below); a test fails the
    suite if the docs drift.
 7. **Agents are first-class operators.** Every query and action takes `--json` (the
@@ -100,11 +100,25 @@ registration with Claude Code (`claude mcp add slot-machine`), then re-verifies 
 you what's left (e.g. `gh auth login`, PATH). Prefer manual? Symlink `bin/*` yourself and
 register the MCP server with `claude mcp add slot-machine -s user -- ~/.local/bin/slot-machine-mcp`.
 
+### Install (Homebrew)
+
+Published via the [tylerbre/homebrew-tap](https://github.com/tylerbre/homebrew-tap) tap
+(`node` is the only dependency; `sm` is the shell bin):
+
+```sh
+brew install tylerbre/tap/slot-machine
+```
+
+The formula lives in the tap. To cut a release: `npm run pack` (produces
+`slot-machine-vX.Y.Z.tar.gz` of tracked files at HEAD) -> attach it to the `vX.Y.Z` GitHub
+release here -> bump the formula's `url`/`sha256` in the tap
+(`shasum -a 256 slot-machine-vX.Y.Z.tar.gz`).
+
 ## Quick start
 
 ```sh
 sm repo use ~/code/acme             # point sm at a repo; prefix/session/base derive from it
-sm slot create a; sm slot create b; sm slot create c    # bootstrap three slots
+sm slot create a; sm slot create b; sm slot create c    # set up three slots
 sm session create                   # build + attach the session (desk + worker panes)
 
 # from the desk:
@@ -120,8 +134,8 @@ sm                                  # any time later: hop back into the most rec
 
 `sm doctor` verifies the whole setup (tmux/git/gh, repo config, slots, pane titles);
 `sm doctor --fix-tmux` writes the recommended pane-title settings into your tmux.conf
-(a marked, idempotent block) and applies them live - with many worker panes, the border
-title is how you tell them apart.
+(a marked block, safe to re-apply) and applies them live - with many worker panes, the
+border title is how you tell them apart.
 
 ## Commands
 
@@ -214,7 +228,7 @@ sm --repo ~/code/foo slot ls
 ## MCP
 
 `slot-machine-mcp` is a zero-dependency stdio MCP server that wraps the CLI - each tool shells out
-to `sm <ns> <cmd> --json`, so it stays in lockstep with the handlers. Canonical tools
+to `sm <ns> <cmd> --json`, so it stays in step with the CLI. The tools
 mirror the CLI: `sm_repo_ls`, `sm_repo_use`, `sm_doctor`, `sm_session_ls`, `sm_session_kill`,
 `sm_session_reload`, `sm_slot_ls`, `sm_slot_focus`, `sm_slot_inspect`, `sm_slot_create`, `sm_slot_rm`,
 `sm_slot_reset`, `sm_worker_ps`, `sm_worker_run`, `sm_worker_logs`, `sm_worker_kill`, `sm_worker_role`, `sm_msg_send`,
@@ -225,14 +239,25 @@ mirror the CLI: `sm_repo_ls`, `sm_repo_use`, `sm_doctor`, `sm_session_ls`, `sm_s
 
 ```sh
 npm test          # node --test (discovers test/)
-npm run lint      # eslint (flat config, recommended + a few strictness rules)
-npm run format    # prettier --write (check-format to verify only)
+npm run lint      # eslint (@antfu/eslint-config - one opinionated preset; it also owns formatting)
+npm run format    # eslint --fix (antfu formats; there is no Prettier)
+npm run pack      # slot-machine-vX.Y.Z.tar.gz of HEAD (tracked files only)
 ```
 
-Pure logic lives in `lib/`: `slots.mjs` (classification/parsing), `exec.mjs` (tmux/git/gh),
-`format.mjs` (output), `commands.mjs` (subcommands), `context.mjs` (repo resolution +
-config), `constants.mjs` (resolved values + help/vocabulary text), `router.mjs` (the
-namespaced dispatch table). `bin/sm` and `bin/slot-machine` are thin entry points over
-the router; `bin/slot-machine-mcp` is
-the MCP server. Integration tests drive real tmux against this machine's configured repo
-and skip cleanly where there isn't one.
+`lib/` is organized by responsibility, no barrel files - import from the specific module:
+
+- `slots/` - `pure.mjs` (classification/parsing, unit-tested), `locks.mjs` (the one lockfile's
+  schemas + lifecycle, incl. embedded resource locks), `gather.mjs` (tmux/git/gh state).
+- `commands/` - one file per namespace (`repo`/`session`/`slot`/`worker`/`msg`/`lock`/`top`) plus
+  `shared.mjs` (cross-command helpers).
+- `schema.mjs` + `elevators.mjs` - the zero-dep JSON-Schema validator, loader, and version-migration
+  runner; the schemas themselves live in `schema/` (lockfile, config, inbox, usage, one per command).
+- `argspec.mjs` - the single arg-spec adapter so the CLI parser and the MCP tools cannot drift.
+- `exec.mjs` (tmux/git/gh plumbing), `format.mjs` (output), `context.mjs` (repo resolution + config),
+  `constants.mjs` (config/data), `help.mjs` (usage/vocabulary text), `router.mjs` (dispatch table).
+
+`bin/sm` and `bin/slot-machine` are thin entry points over the router; `bin/slot-machine-mcp` is the
+MCP server, whose tools are derived at runtime from `schema/commands/*.json`. See
+[docs/architecture.md](docs/architecture.md) for diagrams and [CHANGELOG.md](CHANGELOG.md) for the
+release history. Integration tests drive real tmux against this machine's configured repo and skip
+cleanly where there isn't one.

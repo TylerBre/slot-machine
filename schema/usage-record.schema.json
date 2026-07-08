@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/usage-record.schema.json",
+  "title": "usage-record",
+  "description": "One CLI invocation's telemetry, appended as a JSONL line. Best-effort: never blocks a command. Versioned via `v`; elevated by USAGE_ELEVATORS in usage.mjs on read. Lenient on purpose: extra fields are allowed (no additionalProperties:false) so adding a metric later never invalidates old lines.",
+  "type": "object",
+  "required": ["v", "ts", "cmd"],
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "ts": { "type": "integer", "description": "invocation time, epoch ms" },
+    "cmd": { "type": "string", "description": "canonical command route, e.g. 'slot ls'" },
+    "ok": { "type": "boolean", "description": "did the command exit 0" },
+    "ms": { "type": "number", "description": "wall-clock duration in ms" },
+    "repo": { "type": ["string", "null"], "description": "active repo name, or null" },
+    "tty": { "type": "boolean", "description": "was stdout a TTY" }
+  }
+}

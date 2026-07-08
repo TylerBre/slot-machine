@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/slot-rm.json",
+  "title": "slot rm",
+  "description": "Remove a slot worktree (git worktree remove). Refuses a live-locked or dirty worktree unless force=true.",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["label"],
+  "additionalProperties": false,
+  "properties": {
+    "label": { "type": "string" },
+    "force": { "type": "boolean" }
+  },
+  "x-cli": {
+    "path": ["slot", "rm"],
+    "args": {
+      "label": { "positional": 0 },
+      "force": { "flag": "--force" }
+    }
+  }
+}

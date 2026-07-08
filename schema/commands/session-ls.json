@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/session-ls.json",
+  "title": "session ls",
+  "description": "List the repo's running tmux sessions (name, windows, slot count, attached).",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-cli": { "path": ["session", "ls"], "args": {} }
+}

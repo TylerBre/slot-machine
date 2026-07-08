@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/worker-role.json",
+  "title": "worker role",
+  "description": "The desk->slots operating model: your role and how to work within it. Auto-detects your role from the current directory (worker inside a slot worktree, else dispatcher); pass role to force one.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "role": { "type": "string", "enum": ["dispatcher", "worker"] }
+  },
+  "x-cli": {
+    "path": ["worker", "role"],
+    "args": {
+      "role": { "positional": 0 }
+    }
+  }
+}

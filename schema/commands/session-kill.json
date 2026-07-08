@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/session-kill.json",
+  "title": "session kill",
+  "description": "Kill tmux session(s): pass sessions[] or all=true. Ends the workers' Claude processes; conversations survive on disk.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessions": { "type": "array", "items": { "type": "string" } },
+    "all": { "type": "boolean" }
+  },
+  "x-cli": {
+    "path": ["session", "kill"],
+    "args": {
+      "sessions": { "positional": 0 },
+      "all": { "flag": "--all" }
+    }
+  }
+}

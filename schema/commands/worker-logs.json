@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/worker-logs.json",
+  "title": "worker logs",
+  "description": "One worker in depth without switching to it: working/idle/waiting state, its last assistant message, and the tail of its pane. Use to tell if a worker needs attention.",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["slot"],
+  "additionalProperties": false,
+  "properties": {
+    "slot": { "type": "string" },
+    "lines": { "type": "number", "description": "pane lines to include (default 20)" },
+    "follow": { "type": "boolean", "description": "redraw on an interval until Ctrl-C" }
+  },
+  "x-cli": {
+    "path": ["worker", "logs"],
+    "args": {
+      "slot": { "positional": 0 },
+      "lines": { "flag": "--lines", "short": "n" },
+      "follow": { "flag": "--follow", "short": "f", "mcpHidden": true }
+    }
+  }
+}

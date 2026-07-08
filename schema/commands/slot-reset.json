@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/slot-reset.json",
+  "title": "slot reset",
+  "description": "Return a slot to a clean base branch @ origin/<base> (to reuse a merged one). Refuses a live-locked or dirty slot unless force=true.",
+  "x-mcp": true,
+  "type": "object",
+  "required": ["slot"],
+  "additionalProperties": false,
+  "properties": {
+    "slot": { "type": "string" },
+    "force": { "type": "boolean" }
+  },
+  "x-cli": {
+    "path": ["slot", "reset"],
+    "args": {
+      "slot": { "positional": 0 },
+      "force": { "flag": "--force" }
+    }
+  }
+}

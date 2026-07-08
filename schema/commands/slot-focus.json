@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/slot-focus.json",
+  "title": "slot focus",
+  "description": "Resolve where a slot pane lives (session/window/pane) without switching the client. Pass firstFree=true to target the first free slot instead of a named one.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "slot": { "type": "string" },
+    "firstFree": { "type": "boolean", "description": "target the first free slot instead of slot" }
+  },
+  "x-cli": {
+    "path": ["slot", "focus"],
+    "args": {
+      "slot": { "positional": 0 },
+      "firstFree": { "flag": "--first-free", "short": "f" }
+    }
+  }
+}

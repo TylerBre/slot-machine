@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/worktree-lock.schema.json",
+  "title": "worktree-lock",
+  "description": "The .worktree-lock document written in each claimed slot worktree - the one lockfile. Versioned via `v`; a lock written by an older sm is upgraded to this version by the elevator ladder in slots.mjs (elevateLock) before use. This file is the source of truth for the slot claim AND for any shared resources the slot holds (see the `resources` array).",
+  "type": "object",
+  "required": ["v", "cwd", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "cwd": {
+      "type": "string",
+      "description": "absolute path of the slot worktree - the lock's identity and source of truth; the slot label is derived from its basename"
+    },
+    "session": { "type": ["string", "null"], "description": "tmux session that claimed the slot" },
+    "pane": { "type": ["string", "null"], "description": "tmux pane id of the worker" },
+    "task": { "type": ["string", "null"], "description": "one-line task the slot was dispatched" },
+    "issue": {
+      "type": ["string", "null"],
+      "description": "tracker issue id (e.g. sc-10132); this lock is its source of truth"
+    },
+    "ts": { "type": "integer", "description": "claim time, epoch ms" },
+    "resources": {
+      "type": "array",
+      "description": "shared machine-level resources this slot currently holds (browser, port, ...); each element is described by resource-lock.schema.json",
+      "items": { "$ref": "resource-lock.schema.json" },
+      "default": []
+    }
+  }
+}
