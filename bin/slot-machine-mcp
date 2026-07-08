@@ -1,0 +1,418 @@
+#!/usr/bin/env node
+// slot-machine-mcp: a zero-dependency stdio MCP server wrapping the `sm` CLI. Each tool
+// shells out to `sm <ns> <cmd> ... --json`, so it stays in lockstep with the CLI.
+// Newline-delimited JSON-RPC 2.0 on stdin/stdout; diagnostics go to stderr.
+import { spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
+
+// Spawn the sibling entry point - works from any install location (Node resolves the
+// symlink, and bin/sm imports ../lib relative to its real path).
+const BIN = fileURLToPath(new URL('./sm', import.meta.url));
+
+// Run sm with args + --json. Returns the CLI's JSON on success, else an error.
+function runSm(args) {
+  // Keep --json before any '--' so guarded messages stay positional.
+  const dd = args.indexOf('--');
+  const argv = dd >= 0 ? [...args.slice(0, dd), '--json', ...args.slice(dd)] : [...args, '--json'];
+  const r = spawnSync(BIN, argv, { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+  if (r.error) return { ok: false, error: `spawn failed: ${r.error.message}` };
+  const out = (r.stdout || '').trim();
+  if (r.status !== 0) return { ok: false, error: (r.stderr || out || `exit ${r.status}`).trim() };
+  return { ok: true, data: out };
+}
+
+const need = (a, k) => {
+  if (a[k] == null || a[k] === '') throw new Error(`${k} is required`);
+  return String(a[k]);
+};
+const list = (a, k) => (Array.isArray(a[k]) ? a[k].map(String) : []);
+
+// tool name -> { description, inputSchema, argv(args) -> string[] }
+const TOOLS = {
+  sm_slot_ls: {
+    description:
+      'List every slot (worktree) with its status (free/merged = reusable; waiting-merge/wip/dirty/closed-pr/locked/stale = busy), associated PR(s), branch, and live/dead worker. Use this to find a reusable slot before handing off work.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    argv: () => ['slot', 'ls'],
+  },
+  sm_slot_inspect: {
+    description:
+      'Deep info on one slot: branch, git state (dirty / commits ahead of the base), worker (live/dead), lock owner + LIVE/STALE staleness (and cross-wiring), and every PR for its branch.',
+    inputSchema: {
+      type: 'object',
+      properties: { slot: { type: 'string', description: 'slot letter, e.g. "c"' } },
+      required: ['slot'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['slot', 'inspect', need(a, 'slot')],
+  },
+  sm_worker_run: {
+    description:
+      'The dispatcher hand-off: pick a free slot with a live worker (resetting a merged/reusable one to a clean base first) and send it a task. Returns the chosen slot.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'the task to send the worker' },
+        session: {
+          type: 'string',
+          description: 'target tmux session (optional; defaults to the sole running one)',
+        },
+        brief: {
+          type: 'boolean',
+          description: 'prepend a one-line role pointer so the worker runs sm worker role first',
+        },
+      },
+      required: ['message'],
+      additionalProperties: false,
+    },
+    argv: (a) => [
+      'worker',
+      'run',
+      ...(a.session ? ['-t', String(a.session)] : []),
+      ...(a.brief ? ['--brief'] : []),
+      '--',
+      need(a, 'message'),
+    ],
+  },
+  sm_msg_send: {
+    description:
+      'Send one submitted line to slot panes (all, or a subset). slots is a comma spec like "a", "1,3,5-6", or "a-c,f".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        slots: { type: 'string', description: 'slot subset spec (optional; default all)' },
+        firstFree: {
+          type: 'boolean',
+          description: 'send to the first reusable slot with a live worker (resets a merged one first)',
+        },
+        brief: { type: 'boolean' },
+        session: { type: 'string' },
+      },
+      required: ['message'],
+      additionalProperties: false,
+    },
+    argv: (a) => [
+      'msg',
+      'send',
+      ...(a.slots ? ['-s', String(a.slots)] : []),
+      ...(a.firstFree ? ['-f'] : []),
+      ...(a.brief ? ['--brief'] : []),
+      ...(a.session ? ['-t', String(a.session)] : []),
+      '--',
+      need(a, 'message'),
+    ],
+  },
+  sm_slot_reset: {
+    description:
+      'Return a slot to a clean base branch @ origin/<base> (to reuse a merged one). Refuses a live-locked or dirty slot unless force=true.',
+    inputSchema: {
+      type: 'object',
+      properties: { slot: { type: 'string' }, force: { type: 'boolean' } },
+      required: ['slot'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['slot', 'reset', need(a, 'slot'), ...(a.force ? ['--force'] : [])],
+  },
+  sm_lock_claim: {
+    description:
+      'Lock a slot (worktree lock) OR a named shared resource like "browser" (atomic machine-level lock - claim BEFORE using the shared authenticated browser, release right after). wait=true queues until free; force=true steals. Losing a resource claim returns the holder.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'slot label or resource name (e.g. "browser")' },
+        task: { type: 'string' },
+        slot: { type: 'string', description: 'which slot holds a resource (default: cwd auto-detect)' },
+        wait: { type: 'boolean' },
+        force: { type: 'boolean' },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    argv: (a) => [
+      'lock',
+      'claim',
+      ...(a.slot ? ['-s', String(a.slot)] : []),
+      ...(a.wait ? ['--wait'] : []),
+      ...(a.force ? ['--force'] : []),
+      '--',
+      need(a, 'name'),
+      ...(a.task ? [String(a.task)] : []),
+    ],
+  },
+  sm_lock_release: {
+    description:
+      'Free a slot worktree lock or a named resource lock (e.g. "browser") - the inverse of claim.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['lock', 'release', need(a, 'name')],
+  },
+  sm_lock_ls: {
+    description: 'List held resource locks: resource, holding slot (live/dead worker), age, task.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    argv: () => ['lock', 'ls'],
+  },
+  sm_worker_ps: {
+    description:
+      "Every worker at a glance - the dispatcher's cheap poll (tmux + locks only, no git/gh). One row per slot: worker live/dead/none, activity working/idle/waiting, and the task its lock carries. Use sm_slot_ls when you need reusability.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    argv: () => ['worker', 'ps'],
+  },
+  sm_worker_logs: {
+    description:
+      'One worker in depth without switching to it: working/idle/waiting state, its last assistant message, and the tail of its pane. Use to tell if a worker needs attention.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slot: { type: 'string' },
+        lines: { type: 'number', description: 'pane lines to include (default 20)' },
+      },
+      required: ['slot'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['worker', 'logs', need(a, 'slot'), ...(a.lines != null ? ['-n', String(a.lines)] : [])],
+  },
+  sm_worker_kill: {
+    description:
+      "End one worker's process; its pane falls back to a shell (worker shows dead) and the session stays intact. The conversation survives on disk.",
+    inputSchema: {
+      type: 'object',
+      properties: { slot: { type: 'string' } },
+      required: ['slot'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['worker', 'kill', need(a, 'slot')],
+  },
+  sm_slot_focus: {
+    description:
+      'Resolve where a slot pane lives (session/window/pane) without switching the client. Pass firstFree=true to target the first free slot instead of a named one.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slot: { type: 'string' },
+        firstFree: { type: 'boolean', description: 'target the first free slot instead of slot' },
+      },
+      additionalProperties: false,
+    },
+    argv: (a) => (a.firstFree ? ['slot', 'focus', '-f'] : ['slot', 'focus', need(a, 'slot')]),
+  },
+  sm_session_reload: {
+    description:
+      'Bring a running session up to date with the slot inventory: every slot without a pane gets a fresh worker pane appended (resuming its conversation); existing panes untouched. Use after sm_slot_create.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session: { type: 'string', description: 'target session (default: the sole running one)' },
+      },
+      additionalProperties: false,
+    },
+    argv: (a) => ['session', 'reload', ...(a.session ? [String(a.session)] : [])],
+  },
+  sm_lock_prune: {
+    description:
+      'Remove stale worktree locks (owner session dead). Pass slots[] to target specific ones, or stale=true to clear every dead lock. dryRun previews; force removes live locks too.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slots: { type: 'array', items: { type: 'string' } },
+        stale: { type: 'boolean' },
+        dryRun: { type: 'boolean' },
+        force: { type: 'boolean' },
+        olderThan: { type: 'number', description: 'staleness threshold in minutes (default 30)' },
+      },
+      additionalProperties: false,
+    },
+    argv: (a) => {
+      const args = ['lock', 'prune'];
+      if (a.stale) args.push('--stale');
+      args.push(...list(a, 'slots'));
+      if (a.dryRun) args.push('--dry-run');
+      if (a.force) args.push('--force');
+      if (a.olderThan != null) args.push('--older-than', String(a.olderThan));
+      if (!a.stale && !list(a, 'slots').length) throw new Error('provide slots[] or stale=true');
+      return args;
+    },
+  },
+  sm_worker_role: {
+    description:
+      'The desk->slots operating model: your role and how to work within it. Auto-detects your role from the current directory (worker inside a slot worktree, else dispatcher); pass role to force one.',
+    inputSchema: {
+      type: 'object',
+      properties: { role: { type: 'string', enum: ['dispatcher', 'worker'] } },
+      additionalProperties: false,
+    },
+    argv: (a) => ['worker', 'role', ...(a.role ? [String(a.role)] : [])],
+  },
+  sm_msg_report: {
+    description:
+      'Worker -> dispatcher back-channel: post a message to the repo inbox (which the dispatcher reads with sm_msg_inbox). Run from within a slot; the slot is auto-detected, or pass it explicitly.',
+    inputSchema: {
+      type: 'object',
+      properties: { message: { type: 'string' }, slot: { type: 'string' } },
+      required: ['message'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['msg', 'report', ...(a.slot ? ['-s', String(a.slot)] : []), '--', need(a, 'message')],
+  },
+  sm_msg_inbox: {
+    description:
+      'Dispatcher: read messages workers posted via sm_msg_report (oldest first). clear=true consumes them after reading.',
+    inputSchema: { type: 'object', properties: { clear: { type: 'boolean' } }, additionalProperties: false },
+    argv: (a) => ['msg', 'inbox', ...(a.clear ? ['--clear'] : [])],
+  },
+  sm_slot_create: {
+    description:
+      'Create a new slot worktree (<root>/<prefix><label>) on branch <prefix><label> off origin/<base>. Does not set up app-specific env/ports.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        label: { type: 'string' },
+        base: { type: 'string', description: "base branch to fork from (default: the repo's base branch)" },
+      },
+      required: ['label'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['slot', 'create', need(a, 'label'), ...(a.base ? [String(a.base)] : [])],
+  },
+  sm_slot_rm: {
+    description:
+      'Remove a slot worktree (git worktree remove). Refuses a live-locked or dirty worktree unless force=true.',
+    inputSchema: {
+      type: 'object',
+      properties: { label: { type: 'string' }, force: { type: 'boolean' } },
+      required: ['label'],
+      additionalProperties: false,
+    },
+    argv: (a) => ['slot', 'rm', need(a, 'label'), ...(a.force ? ['--force'] : [])],
+  },
+  sm_repo_ls: {
+    description: 'The known repos (dirs sm manages) and which one is current.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    argv: () => ['repo', 'ls'],
+  },
+  sm_repo_use: {
+    description:
+      'Select the current repo - the git repo the other tools act on (root/prefix/session/base are derived from it).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'path to the git repo (main worktree)' },
+        prefix: { type: 'string' },
+        session: { type: 'string' },
+        base: { type: 'string' },
+      },
+      required: ['repo'],
+      additionalProperties: false,
+    },
+    argv: (a) => [
+      'repo',
+      'use',
+      need(a, 'repo'),
+      ...(a.prefix ? ['--prefix', String(a.prefix)] : []),
+      ...(a.session ? ['--session', String(a.session)] : []),
+      ...(a.base ? ['--base', String(a.base)] : []),
+    ],
+  },
+  sm_doctor: {
+    description:
+      'Check environment + config health: tmux/git/gh/node present, gh authenticated, the resolved config and its sources, root dir, slots, and base-branch resolvability. ok=false with fails>0 means broken.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    argv: () => ['doctor'],
+  },
+  sm_session_ls: {
+    description: "List the repo's running tmux sessions (name, windows, slot count, attached).",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    argv: () => ['session', 'ls'],
+  },
+  sm_session_kill: {
+    description:
+      "Kill tmux session(s): pass sessions[] or all=true. Ends the workers' Claude processes; conversations survive on disk.",
+    inputSchema: {
+      type: 'object',
+      properties: { sessions: { type: 'array', items: { type: 'string' } }, all: { type: 'boolean' } },
+      additionalProperties: false,
+    },
+    argv: (a) => {
+      const args = ['session', 'kill'];
+      if (a.all) args.push('--all');
+      args.push(...list(a, 'sessions'));
+      if (!a.all && !list(a, 'sessions').length) throw new Error('provide sessions[] or all=true');
+      return args;
+    },
+  },
+};
+
+const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n');
+
+function handle(req) {
+  const { id, method, params } = req;
+  if (method === 'initialize') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: params?.protocolVersion || '2025-06-18',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'slot-machine', version: '1.0.0' },
+      },
+    };
+  }
+  if (method === 'tools/list') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        tools: Object.entries(TOOLS).map(([name, t]) => ({
+          name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        })),
+      },
+    };
+  }
+  if (method === 'tools/call') {
+    const t = TOOLS[params?.name];
+    if (!t) return { jsonrpc: '2.0', id, error: { code: -32602, message: `unknown tool: ${params?.name}` } };
+    let argv;
+    try {
+      argv = t.argv(params.arguments || {});
+    } catch (e) {
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true },
+      };
+    }
+    const res = runSm(argv);
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        content: [{ type: 'text', text: res.ok ? res.data : `error: ${res.error}` }],
+        isError: !res.ok,
+      },
+    };
+  }
+  if (method === 'ping') return { jsonrpc: '2.0', id, result: {} };
+  if (id !== undefined)
+    return { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } };
+  return null; // notification -> no response
+}
+
+createInterface({ input: process.stdin }).on('line', (line) => {
+  const s = line.trim();
+  if (!s) return;
+  let req;
+  try {
+    req = JSON.parse(s);
+  } catch {
+    return;
+  }
+  const resp = handle(req);
+  if (resp) send(resp);
+});

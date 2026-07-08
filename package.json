@@ -1,0 +1,28 @@
+{
+  "name": "slot-machine",
+  "version": "1.0.0",
+  "description": "Manage tmux sessions with git worktrees (slots) - a CLI (sm) and MCP server for orchestrating Claude Code workers across a repo's worktree slots.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "bin": {
+    "sm": "bin/sm",
+    "slot-machine": "bin/slot-machine",
+    "slot-machine-mcp": "bin/slot-machine-mcp"
+  },
+  "scripts": {
+    "test": "node --test",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "check-format": "prettier --check ."
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4"
+  }
+}

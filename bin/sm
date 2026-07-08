@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+// sm - slot machine: tmux + git-worktree orchestration for Claude agent fleets.
+// Entry point; all routing lives in ../lib/router.mjs. Symlinked to ~/.local/bin/sm.
+import { run } from '../lib/router.mjs';
+
+run(process.argv.slice(2));

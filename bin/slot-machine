@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+// slot-machine - long-form name for the `sm` CLI; identical behavior. See bin/sm.
+import { run } from '../lib/router.mjs';
+
+run(process.argv.slice(2));

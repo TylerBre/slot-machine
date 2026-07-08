@@ -1,0 +1,238 @@
+![slot machine](assets/slot-machine.png)
+
+# slot machine
+
+Run a fleet of Claude Code agents against one repo, in parallel, without them stepping on
+each other - from a single tmux session you drive like a dispatcher.
+
+`sm` lays out one git worktree ("slot") per agent ("worker"), builds a tmux session with
+one worker pane per slot plus a control window (the "desk"), and gives you the primitives
+a dispatcher needs: see who's free, hand off work, check in, and reclaim finished slots.
+It ships as a CLI (`sm`) and a zero-dependency MCP server, so both you and your agents can
+drive it.
+
+## The problem it solves
+
+One Claude agent per repo checkout is the natural limit: two agents in one working tree
+clobber each other's branches, index, and build artifacts. Worktrees fix the isolation,
+but running many of them surfaces the next set of problems - the ones slot machine
+actually exists for:
+
+- **"Which slot is safe to reuse?"** A lock file lies (its owner may be dead), and an
+  empty-looking worktree may hold a worker mid-task that just hasn't branched yet.
+- **"What is everyone doing?"** Eyeballing N panes doesn't scale, and transcript
+  silence doesn't mean idle - a slow tool call looks identical to done.
+- **"How do workers reach you?"** Scraping their panes is lossy; results get stranded
+  in scrollback.
+- **Shared singletons** - an authenticated browser, a port - get raced and killed.
+
+What the workflow gains you: N tracks of work in flight with one dispatcher (you, or
+an agent in the desk seat) at the wheel, safe reuse decided from evidence, and a structured
+loop - find capacity, hand off, check in, reclaim - instead of tmux spelunking.
+
+## The mental model
+
+A **session** is a floor with a **desk** and a row of **slots**. The **dispatcher** sits
+at the desk; a **worker** sits in each slot. The dispatcher never leaves the desk and
+never touches a slot's files; workers never leave their slot. Work flows one way (desk ->
+slot via `sm worker run` / `sm msg send`), results flow back the other (slot -> desk via
+`sm msg report`, read with `sm msg inbox`).
+
+Each slot cycles:
+
+```
+free -> handed a task (locked, wip) -> PR open (waiting-merge) -> merged -> reset -> free
+```
+
+`sm slot ls` classifies every slot along that cycle from its git branch + GitHub PR state,
+and `sm slot reset` closes the loop by returning a merged slot to a clean base. The
+dispatcher's whole job is keeping that cycle turning: `sm worker role` prints the full
+briefing for either seat (dispatcher brief at the desk, worker brief inside a slot).
+
+## Opinions
+
+slot machine is opinionated. The opinions, explicitly:
+
+1. **One slot, one worker, one track of work.** No sharing, no doubling up.
+2. **The dispatcher delegates and observes - never edits.** If a slot needs a fix, its
+   worker makes it.
+3. **Freeness is evidence, not vibes.** Reusability is derived from branch + PR state;
+   a lock is authoritative for _busy_, never for _free_ (owners die; `sm lock prune`
+   reclaims stale ones deterministically).
+4. **Structured back-channel over pane-scraping.** Reporting via `sm msg report` is part
+   of a worker being done.
+5. **Shared singletons are locked, not raced.** `sm lock claim browser` is atomic; the
+   loser learns who holds it instead of killing it.
+6. **Rigid vocabulary.** Every concept has exactly one name (below); a test fails the
+   suite if the docs drift.
+7. **Agents are first-class operators.** Every query and action takes `--json` (the
+   interactive session builder is the one exception), the MCP server mirrors the CLI
+   (minus the client-interactive commands: session create/attach/detach, preflight,
+   stats), and usage is recorded locally (`sm stats`) so the interface evolves from
+   evidence.
+
+## Vocabulary
+
+The rigid definitions (`sm help vocab`):
+
+| term           | definition                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------- |
+| **repo**       | the git repo a session is built around; everything derives from it                                 |
+| **slot**       | one worktree of the repo; holds at most one worker and one track of work                           |
+| **worker**     | the Claude process in a slot's pane; does exactly one slot's work                                  |
+| **desk**       | the session's first window; the seat the dispatcher runs the session from                          |
+| **dispatcher** | the role at the desk: finds capacity, hands off, checks in, reclaims - never edits a slot          |
+| **session**    | the tmux session laying out the desk + slot panes for one repo                                     |
+| **lock**       | a claim on a slot (`.worktree-lock`) or a shared machine resource (e.g. the authenticated browser) |
+
+## Install
+
+Node >= 22 and tmux required; `gh` (authenticated) powers PR-state classification.
+
+```sh
+git clone <this repo> && cd slot-machine
+node bin/sm doctor --fix
+```
+
+`doctor --fix` detects and installs everything safely automatable: the `~/.local/bin`
+symlinks (`sm`, `slot-machine`, `slot-machine-mcp`), the tmux pane-title block, and MCP
+registration with Claude Code (`claude mcp add slot-machine`), then re-verifies and tells
+you what's left (e.g. `gh auth login`, PATH). Prefer manual? Symlink `bin/*` yourself and
+register the MCP server with `claude mcp add slot-machine -s user -- ~/.local/bin/slot-machine-mcp`.
+
+## Quick start
+
+```sh
+sm repo use ~/code/acme             # point sm at a repo; prefix/session/base derive from it
+sm slot create a; sm slot create b; sm slot create c    # bootstrap three slots
+sm session create                   # build + attach the session (desk + worker panes)
+
+# from the desk:
+sm slot ls                          # who's free? (git branch + PR state)
+sm worker run "fix ABC-123: <link>" # hand a task to the first free worker
+sm worker ps                        # who's working / idle / waiting?
+sm worker logs a                    # one worker in depth: last message + pane tail
+sm msg inbox                        # read what workers reported back
+sm slot reset a                     # merged? return it to a clean base
+
+sm                                  # any time later: hop back into the most recent session
+```
+
+`sm doctor` verifies the whole setup (tmux/git/gh, repo config, slots, pane titles);
+`sm doctor --fix-tmux` writes the recommended pane-title settings into your tmux.conf
+(a marked, idempotent block) and applies them live - with many worker panes, the border
+title is how you tell them apart.
+
+## Commands
+
+Commands are namespaced by the noun they act on, with docker-style generic verbs
+(`ls`, `inspect`, `create`, `rm`, `kill`):
+
+```
+sm doctor                                check environment + repo health
+sm stats [--days N]                      command usage: counts, error rates, timings
+sm help [ns] [cmd] | vocab               overview, namespace, command detail, or vocabulary
+
+sm repo ls                               known repos (current marked with *)
+sm repo use REPO                         select the current repo (derives root/prefix/session/base)
+sm repo inspect [REPO]                   one repo's resolved context
+sm repo rm REPO                          forget a repo (config only)
+
+sm session ls                            list the repo's running sessions
+sm session create [N] [name] [--kill]    build or attach a session (N = 2|3|4 panes/window)
+sm session attach [NAME]                 attach/switch (default: most recent; bare 'sm' too)
+sm session detach [NAME]                 detach your client (or every client of NAME)
+sm session reload [NAME]                 add panes for slots created after the session was built
+sm session kill NAME... | --all          kill session(s); conversations survive on disk
+
+sm slot ls [--free|--watch]              classify each slot: free/merged (reusable) vs busy
+sm slot inspect SLOT                     one slot in depth: branch, worker, lock, PRs
+sm slot focus SLOT | -f                  jump the tmux client to a slot's pane
+sm slot create LABEL [base] | rm LABEL   create / remove a slot worktree
+sm slot reset SLOT [--force]             return a slot to a clean base branch @ origin/<base>
+
+sm worker ps [--watch]                   every worker: live/dead, activity, current task
+sm worker run MESSAGE [--brief]          hand a task to the first reusable slot's worker
+sm worker logs SLOT [-n N] [-f]          one worker in depth: activity, last message, pane tail
+sm worker kill SLOT                      end a worker's process; its pane falls back to a shell
+sm worker role [dispatcher|worker]       print the desk->slots operating model (auto-detected)
+sm worker preflight                      assert cwd is your slot worktree (workers, before git work)
+
+sm msg send MESSAGE [-s SPEC|-f]         type a line into slot panes (all, a subset, or -f first-free)
+sm msg report "MSG" | sm msg inbox       worker -> dispatcher back-channel (report to send, inbox to read)
+
+sm lock ls                               list held resource locks (holder, age, task)
+sm lock claim NAME [task] | release NAME lock a slot OR shared resource (e.g. browser) / free it
+sm lock prune SLOT... | --stale          remove stale worktree locks (dead owner session)
+```
+
+Add `--json` to most commands for machine-readable output; `--repo DIR` targets a repo
+for one command. `sm --help` is the overview; `sm help <ns>` prints a namespace; `sm <ns>
+<cmd> --help` (or `sm help <ns> <cmd>`) gives detailed help with examples.
+
+### Freeness
+
+`sm slot ls` decides reusability from each slot's git branch + GitHub PR state (not just
+the lock file):
+
+| status          | meaning                                                                     |
+| --------------- | --------------------------------------------------------------------------- |
+| `free`          | reusable - idle on its base branch                                          |
+| `merged`        | reusable - all PRs for the branch are merged                                |
+| `waiting-merge` | busy - open PR                                                              |
+| `wip`           | busy - commits ahead of the base, no PR yet                                 |
+| `dirty`         | busy - uncommitted changes                                                  |
+| `closed-pr`     | busy - PR closed without merging                                            |
+| `locked`        | busy - a live session holds the worktree                                    |
+| `stale`         | busy - locked, but the owner session is dead (reclaim with `sm lock prune`) |
+| `active`        | busy - a live worker is mid-task (no branch/lock yet)                       |
+
+## Repos
+
+Everything derives from a repo's main-worktree dir, so `sm` is multi-repo:
+
+- **root** = the repo's parent dir (slots are siblings)
+- **prefix** = `<name>-slot-` (repo `acme` -> `acme-slot-`)
+- **session prefix** = `<name>`
+- **base branch** = the repo's default branch (`origin/HEAD`), else `main`
+
+Set the current repo (persisted in `~/.config/slot/config.json`); all commands then act
+on it:
+
+```sh
+sm repo use ~/code/acme                                          # derive + select
+sm repo use ~/code/foo --prefix wt- --session foo --base master  # override derived values
+sm repo ls                                                       # show current + known repos
+```
+
+Any command also takes `--repo DIR` for a one-off repo without switching:
+
+```sh
+sm --repo ~/code/foo slot ls
+```
+
+## MCP
+
+`slot-machine-mcp` is a zero-dependency stdio MCP server that wraps the CLI - each tool shells out
+to `sm <ns> <cmd> --json`, so it stays in lockstep with the handlers. Canonical tools
+mirror the CLI: `sm_repo_ls`, `sm_repo_use`, `sm_doctor`, `sm_session_ls`, `sm_session_kill`,
+`sm_session_reload`, `sm_slot_ls`, `sm_slot_focus`, `sm_slot_inspect`, `sm_slot_create`, `sm_slot_rm`,
+`sm_slot_reset`, `sm_worker_ps`, `sm_worker_run`, `sm_worker_logs`, `sm_worker_kill`, `sm_worker_role`, `sm_msg_send`,
+`sm_msg_report`, `sm_msg_inbox`, `sm_lock_claim`, `sm_lock_release`, `sm_lock_ls`,
+`sm_lock_prune`.
+
+## Develop
+
+```sh
+npm test          # node --test (discovers test/)
+npm run lint      # eslint (flat config, recommended + a few strictness rules)
+npm run format    # prettier --write (check-format to verify only)
+```
+
+Pure logic lives in `lib/`: `slots.mjs` (classification/parsing), `exec.mjs` (tmux/git/gh),
+`format.mjs` (output), `commands.mjs` (subcommands), `context.mjs` (repo resolution +
+config), `constants.mjs` (resolved values + help/vocabulary text), `router.mjs` (the
+namespaced dispatch table). `bin/sm` and `bin/slot-machine` are thin entry points over
+the router; `bin/slot-machine-mcp` is
+the MCP server. Integration tests drive real tmux against this machine's configured repo
+and skip cleanly where there isn't one.
