@@ -8,16 +8,18 @@
   "required": ["slot"],
   "additionalProperties": false,
   "properties": {
-    "slot": { "type": "string" },
-    "lines": { "type": "number", "description": "pane lines to include (default 20)" },
-    "follow": { "type": "boolean", "description": "redraw on an interval until Ctrl-C" }
+    "slot": { "type": "string", "description": "slot letter to inspect, e.g. \"c\"" },
+    "lines": { "type": "integer", "description": "pane lines to include (default 20)" },
+    "follow": { "type": "boolean", "description": "redraw on an interval until Ctrl-C (alias: --watch)" },
+    "watch": { "type": "boolean", "description": "alias for --follow (one word works across ls/ps/logs)" }
   },
   "x-cli": {
     "path": ["worker", "logs"],
     "args": {
       "slot": { "positional": 0 },
       "lines": { "flag": "--lines", "short": "n" },
-      "follow": { "flag": "--follow", "short": "f", "mcpHidden": true }
+      "follow": { "flag": "--follow", "short": "f", "mcpHidden": true },
+      "watch": { "flag": "--watch", "mcpHidden": true }
     }
   }
 }

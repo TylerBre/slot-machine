@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/worker-wait.json",
+  "title": "worker wait",
+  "description": "Block until the targeted workers finish - the dispatcher's wait step. Polls activity and returns when no targeted slot is actively working (idle/waiting/dead); exits nonzero at the timeout. CLI-only: a long blocking call does not belong on the agent MCP surface.",
+  "x-mcp": false,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "slots": { "type": "string", "description": "slot subset spec like \"a\", \"1,3\", \"a-c\" (default: all slots)" },
+    "timeout": { "type": "integer", "description": "max seconds to wait before giving up (default 1800)" }
+  },
+  "x-cli": {
+    "path": ["worker", "wait"],
+    "args": {
+      "slots": { "flag": "--slots", "short": "s" },
+      "timeout": { "flag": "--timeout" }
+    }
+  }
+}

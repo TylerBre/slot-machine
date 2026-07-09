@@ -7,12 +7,14 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "watch": { "type": "boolean", "description": "redraw the table on an interval until Ctrl-C" }
+    "watch": { "type": "boolean", "description": "redraw the table on an interval until Ctrl-C (alias: --follow)" },
+    "follow": { "type": "boolean", "description": "alias for --watch (one word works across ls/ps/logs)" }
   },
   "x-cli": {
     "path": ["worker", "ps"],
     "args": {
-      "watch": { "flag": "--watch", "mcpHidden": true }
+      "watch": { "flag": "--watch", "mcpHidden": true },
+      "follow": { "flag": "--follow", "mcpHidden": true }
     }
   }
 }

@@ -15,11 +15,13 @@ import {
   classifySlot,
   detectRole,
   issueFromText,
+  killTargetsFromPgrep,
   lockStale,
   paneActivity,
   pickDispatchSlot,
   preflightStatus,
   reloadPaneWidth,
+  reloadTargetWindow,
   resolveSlots,
   selectPanes,
 } from '../lib/slots/pure.mjs';
@@ -40,7 +42,7 @@ import {
 import { LOCK_FILENAME } from '../lib/constants.mjs';
 import { resolveActive } from '../lib/context.mjs';
 import { formatSessions } from '../lib/format.mjs';
-import { appendReport, clearInbox, readInbox, waitForReports } from '../lib/inbox.mjs';
+import { appendReport, clearInbox, consumeReports, readInbox, waitForReports } from '../lib/inbox.mjs';
 import { readUsage, recordUsage, summarizeUsage } from '../lib/usage.mjs';
 
 const LABELS = ['a', 'b', 'c', 'd', 'e', 'f']; // 6 slots for parser tests
@@ -109,6 +111,33 @@ test('selectPanes: filters to wanted labels, preserves order', () => {
 test('selectPanes: rejects a nested path under a slot dir', () => {
   const docs = '/home/u/Documents';
   assert.deepEqual(selectPanes([`%1 ${docs}/acme-slot-a/sub`], docs, 'acme-slot-', null), []);
+});
+
+test('selectPanes: one entry PER pane - a slot shown in two panes yields two targets', () => {
+  // Documented contract: broadcast/-s delivery hits every matching pane (msg send then dedups the
+  // claim by lock dir, which is idempotent). This is deliberate, not the per-label dedup slotPanes does.
+  const docs = '/home/u/Documents';
+  const lines = [`%1 ${docs}/acme-slot-a`, `%2 ${docs}/acme-slot-a`];
+  assert.deepEqual(selectPanes(lines, docs, 'acme-slot-', null), [
+    { pid: '%1', lbl: 'a' },
+    { pid: '%2', lbl: 'a' },
+  ]);
+});
+
+test('killTargetsFromPgrep: keeps numeric child pids, drops blanks/garbage; empty when none', () => {
+  assert.deepEqual(killTargetsFromPgrep('4242\n4243\n'), [4242, 4243]);
+  assert.deepEqual(killTargetsFromPgrep('  91\n\n  92  \n'), [91, 92]); // trims, skips blanks
+  assert.deepEqual(killTargetsFromPgrep('91\nnotapid\n92'), [91, 92]); // skips non-numeric noise
+  assert.deepEqual(killTargetsFromPgrep(''), []); // pane already at a shell -> nothing to kill
+  assert.deepEqual(killTargetsFromPgrep(null), []);
+});
+
+test('reloadTargetWindow: fills the first window with room, spills (null) when all are full', () => {
+  assert.equal(reloadTargetWindow([{ id: 'w1', panes: 3 }], 3), null); // full -> new window
+  assert.deepEqual(reloadTargetWindow([{ id: 'w1', panes: 2 }], 3), { id: 'w1', panes: 2 }); // room
+  assert.deepEqual(reloadTargetWindow([{ id: 'w1', panes: 3 }, { id: 'w2', panes: 1 }], 3), { id: 'w2', panes: 1 });
+  assert.equal(reloadTargetWindow([], 3), null); // no windows yet -> new window
+  assert.equal(reloadTargetWindow([{ id: 'w1', panes: 2 }], 2), null); // exactly at width -> full
 });
 
 test('formatSessions: pluralizes, pads, flags attached', () => {
@@ -339,6 +368,29 @@ test('inbox: report round-trip (append/read/clear)', () => {
   }
 });
 
+test('consumeReports: drops only [from,to), keeps earlier + later (incl. a report appended after)', () => {
+  const dir = join(tmpdir(), `slot-consume-${process.pid}`);
+  process.env.SLOT_INBOX_DIR = dir;
+  try {
+    for (const idx of [0, 1, 2, 3]) appendReport('t', { slot: 'a', message: `r${idx}` });
+    // A watch displayed indices [1,3). Before consuming, a new report lands (index 4).
+    appendReport('t', { slot: 'a', message: 'r4-arrived-during' });
+    consumeReports('t', 1, 3); // drop r1, r2 only
+    const kept = readInbox('t').map(entry => entry.message);
+    // survivors: everything except the consumed [1,3) range - the late arrival must survive.
+    assert.deepEqual(kept, ['r0', 'r3', 'r4-arrived-during']);
+    // boundary cases: from=0 and to=len
+    clearInbox('t');
+    for (const idx of [0, 1, 2]) appendReport('t', { slot: 'a', message: `x${idx}` });
+    consumeReports('t', 0, 3);
+    assert.deepEqual(readInbox('t'), []);
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+    delete process.env.SLOT_INBOX_DIR;
+  }
+});
+
 test('usage: record round-trip + summarize (counts, errors, avg/max, sort by count)', () => {
   const file = join(tmpdir(), `slot-usage-${process.pid}.jsonl`);
   process.env.SLOT_USAGE_FILE = file;
@@ -491,6 +543,33 @@ test('classifySlot: status tokens', () => {
   );
 });
 
+test('classifySlot: unknown ahead (base unresolvable) is NOT free - fails safe', () => {
+  // ahead=null means the commit count could not be computed (origin/<base> did not resolve).
+  // A committed-but-unpushed slot must never read as free, or the dispatcher clobbers live work.
+  const cls = classifySlot({
+    branch: 'acme-slot-j',
+    baseBranch: 'acme-slot-j',
+    locked: false,
+    dirty: false,
+    ahead: null,
+    prs: [],
+  });
+  assert.equal(cls.free, false);
+  assert.equal(cls.status, 'unknown');
+  // a merged PR still wins over unknown-ahead (the PR state is authoritative)
+  assert.equal(
+    classifySlot({
+      branch: 'f/x',
+      baseBranch: 'acme-slot-j',
+      locked: false,
+      dirty: false,
+      ahead: null,
+      prs: [{ number: 1, state: 'MERGED' }],
+    }).free,
+    true,
+  );
+});
+
 test('classifySlot: all PRs merged is free (even with stale ahead)', () => {
   assert.equal(
     classifySlot({
@@ -584,6 +663,11 @@ test(
     const log = join(tmpdir(), `${sess}.log`);
     const pick = realSlots.slice(0, 4);
     const tmux = (...args) => spawnSync('tmux', args, { encoding: 'utf8' });
+    // Stub each worker pane with a node stdin-reader, NOT a bash loop: msg send now skips panes
+    // whose pane_current_command is a shell (the "Claude exited" signal), so the stub must run a
+    // non-shell command ('node') to register as a live worker. It logs '<basename>:<line>' so an
+    // over-broadcast to an unrequested slot would show up and fail the exact-match assertion.
+    const reader = `require('readline').createInterface({input:process.stdin}).on('line',l=>require('fs').appendFileSync(${JSON.stringify(log)},require('path').basename(process.cwd())+':'+l+'\\n'))`;
 
     rmSync(log, { force: true });
     // msg send claims the targeted slots (writes real .worktree-lock files) - snapshot the
@@ -601,9 +685,9 @@ test(
         sess,
         '-c',
         join(docs, pick[0]),
-        'bash',
-        '-c',
-        `while IFS= read -r x; do printf '%s:%s\\n' "$(basename "$PWD")" "$x" >> ${log}; done`,
+        'node',
+        '-e',
+        reader,
       );
       for (const dir of pick.slice(1)) {
         tmux(
@@ -616,9 +700,9 @@ test(
           sess,
           '-c',
           join(docs, dir),
-          'bash',
-          '-c',
-          `while IFS= read -r x; do printf '%s:%s\\n' "$(basename "$PWD")" "$x" >> ${log}; done`,
+          'node',
+          '-e',
+          reader,
         );
       }
       // Send to panes 0 and 2 of the 4 logging slot panes; 1 and 3 must stay silent.
@@ -633,7 +717,7 @@ test(
         sess,
       );
       assert.equal(result.status, 0, result.stderr);
-      assert.match(result.stdout, /delivered to 2\/2 slot pane\(s\)/); // verified-submit count
+      assert.match(result.stdout, /delivered to 2\/2 live slot pane\(s\)/); // verified-submit count
 
       let lines = [];
       for (let attempt = 0; attempt < 40; attempt++) {

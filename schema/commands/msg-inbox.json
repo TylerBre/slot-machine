@@ -7,8 +7,8 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "clear": { "type": "boolean" },
-    "number": { "type": "string", "description": "show only the most recent N reports" },
+    "clear": { "type": "boolean", "description": "print the reports, then empty the inbox (consume them)" },
+    "number": { "type": "integer", "description": "show only the most recent N reports" },
     "newestFirst": { "type": "boolean", "description": "newest report first; default oldest first" },
     "watch": { "type": "boolean", "description": "block until the next report lands, then print + exit" }
   },

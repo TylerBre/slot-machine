@@ -8,18 +8,18 @@
   "required": ["message"],
   "additionalProperties": false,
   "properties": {
-    "message": { "type": "string" },
-    "slots": { "type": "string", "description": "slot subset spec (optional; default all)" },
+    "message": { "type": "string", "description": "the line to submit into the targeted slot pane(s); a leading '/' hits a Claude slash-command" },
+    "slots": { "type": "string", "description": "slot subset spec like \"a\", \"1,3\", \"a-c\" (optional; default all)" },
     "firstFree": {
       "type": "boolean",
       "description": "send to the first reusable slot with a live worker (resets a merged one first)"
     },
-    "brief": { "type": "boolean" },
+    "brief": { "type": "boolean", "description": "prepend a one-line 'run sm worker role' pointer so a fresh worker orients first (with -f or a single -s target)" },
     "untilIdle": {
       "type": "boolean",
       "description": "keep retrying delivery until each targeted slot's composer accepts the submit, or a timeout"
     },
-    "session": { "type": "string" }
+    "session": { "type": "string", "description": "target tmux session (optional; defaults to the sole running one)" }
   },
   "x-cli": {
     "path": ["msg", "send"],

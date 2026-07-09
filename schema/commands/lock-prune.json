@@ -11,7 +11,7 @@
     "stale": { "type": "boolean" },
     "dryRun": { "type": "boolean" },
     "force": { "type": "boolean" },
-    "olderThan": { "type": "number", "description": "staleness threshold in minutes (default 30)" }
+    "olderThan": { "type": "integer", "description": "staleness threshold in minutes (default 30)" }
   },
   "x-cli": {
     "path": ["lock", "prune"],

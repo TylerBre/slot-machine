@@ -8,7 +8,7 @@
   "required": ["name"],
   "additionalProperties": false,
   "properties": {
-    "name": { "type": "string" }
+    "name": { "type": "string", "description": "a slot letter (free its worktree lock) or a resource name like \"browser\" (release it)" }
   },
   "x-cli": {
     "path": ["lock", "release"],

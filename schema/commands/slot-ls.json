@@ -2,19 +2,21 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/commands/slot-ls.json",
   "title": "slot ls",
-  "description": "List every slot (worktree) with its status (free/merged = reusable; waiting-merge/wip/dirty/closed-pr/locked/stale = busy), associated PR(s), branch, and live/dead worker. Use this to find a reusable slot before handing off work.",
+  "description": "List every slot (worktree) with its status (free/merged = reusable; waiting-merge/wip/dirty/closed-pr/locked/stale/unknown = busy), tracker issue, associated PR(s), branch, and live/dead worker. Use this to find a reusable slot before handing off work.",
   "x-mcp": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "free": { "type": "boolean", "description": "print only the labels of reusable slots, space-separated" },
-    "watch": { "type": "boolean", "description": "redraw the table on an interval until Ctrl-C" }
+    "watch": { "type": "boolean", "description": "redraw the table on an interval until Ctrl-C (alias: --follow)" },
+    "follow": { "type": "boolean", "description": "alias for --watch (one word works across ls/ps/logs)" }
   },
   "x-cli": {
     "path": ["slot", "ls"],
     "args": {
       "free": { "flag": "--free", "short": "q", "mcpHidden": true },
-      "watch": { "flag": "--watch", "mcpHidden": true }
+      "watch": { "flag": "--watch", "mcpHidden": true },
+      "follow": { "flag": "--follow", "mcpHidden": true }
     }
   }
 }

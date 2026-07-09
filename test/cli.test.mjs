@@ -1,7 +1,8 @@
 // End-to-end CLI tests through the real binaries, hermetic via a throwaway $HOME (config,
-// inbox, locks, and usage all live under it) and a scratch git repo with no origin remote.
-// No tmux session is created and no worker is spawned; tmux-dependent state simply reads
-// as 'none'. Tests run in file order and share the fixture.
+// inbox, locks, and usage all live under it) and a scratch git repo with a local bare origin
+// (so origin/<base> resolves - freeness/reset measure commits-ahead against it). No tmux
+// session is created and no worker is spawned; tmux-dependent state simply reads as 'none'.
+// Tests run in file order and share the fixture.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -18,6 +19,13 @@ mkdirSync(repoDir, { recursive: true });
 const git = (...args) => spawnSync('git', ['-C', repoDir, ...args], { encoding: 'utf8' });
 git('init', '-q', '-b', 'main');
 git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
+// A local bare origin so origin/main resolves: freeness (commits-ahead) and reset measure against
+// it. Without one, slotGit cannot count ahead and every slot correctly reads 'unknown' (fail-safe).
+const originDir = join(FAKE, 'code', 'myapp-origin.git');
+spawnSync('git', ['init', '-q', '--bare', '-b', 'main', originDir], { encoding: 'utf8' });
+git('remote', 'add', 'origin', originDir);
+git('push', '-q', 'origin', 'main');
+git('fetch', '-q', 'origin'); // ensure refs/remotes/origin/main exists for rev-list
 
 // TMUX_TMPDIR points at an empty dir (and TMUX is dropped) so children never see the
 // machine's real tmux server - worker 'none' is guaranteed, not a coincidence.
@@ -167,7 +175,7 @@ test('cli: slot create makes a worktree and reports the real start point', () =>
   const created = json(sm('slot', 'create', 'a', '--json'));
   assert.equal(created.slot, 'a');
   assert.equal(created.branch, 'myapp-slot-a');
-  assert.equal(created.from, 'main'); // no origin remote -> fell back to the local base
+  assert.equal(created.from, 'origin/main'); // forks from the origin base branch
   assert.ok(existsSync(join(FAKE, 'code', 'myapp-slot-a', '.git')));
   assert.match(sm('slot', 'create', 'a').stderr, /already exists/);
   assert.equal(json(sm('slot', 'create', 'b', '--json')).slot, 'b');
@@ -297,6 +305,24 @@ test('cli: reset returns a slot to a clean base and releases its lock', () => {
   assert.equal(json(result).reset, true);
   assert.equal(existsSync(join(FAKE, 'code', 'myapp-slot-a', '.worktree-lock')), false);
   assert.equal(json(sm('slot', 'ls', '--json')).find(row => row.slot === 'a').status, 'free');
+});
+
+test('cli: a slot with unmerged commits is wip, and reset refuses to discard them without --force', () => {
+  assert.equal(json(sm('slot', 'create', 'c', '--json')).slot, 'c');
+  const slotC = join(FAKE, 'code', 'myapp-slot-c');
+  // commit in the slot so it is ahead of origin/main (unmerged, unpushed work)
+  spawnSync('git', ['-C', slotC, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'wip'], { encoding: 'utf8' });
+  assert.equal(json(sm('slot', 'ls', '--json')).find(row => row.slot === 'c').status, 'wip');
+  // reset must NOT silently discard the commit
+  const refused = sm('slot', 'reset', 'c');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /commit\(s\) not on origin\/main .*--force/);
+  // --force reclaims it back to a clean base
+  const forced = sm('slot', 'reset', 'c', '--force', '--json');
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.equal(json(forced).reset, true);
+  assert.equal(json(sm('slot', 'ls', '--json')).find(row => row.slot === 'c').status, 'free');
+  sm('slot', 'rm', 'c', '--force'); // cleanup: leave the shared fixture at a, b
 });
 
 test('cli: slot rm removes the worktree', () => {

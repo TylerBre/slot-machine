@@ -8,12 +8,14 @@
   "required": ["slot"],
   "additionalProperties": false,
   "properties": {
-    "slot": { "type": "string" }
+    "slot": { "type": "string", "description": "slot letter whose worker to kill, e.g. \"c\"" },
+    "force": { "type": "boolean", "description": "kill even if the worker is actively working (default: refuse a busy worker)" }
   },
   "x-cli": {
     "path": ["worker", "kill"],
     "args": {
-      "slot": { "positional": 0 }
+      "slot": { "positional": 0 },
+      "force": { "flag": "--force" }
     }
   }
 }

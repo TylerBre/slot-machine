@@ -135,6 +135,12 @@ test('conformance: every spec is well-formed and its MCP-visible args round-trip
       Object.keys(spec['x-cli'].args).sort(),
       `${file}: properties vs x-cli.args must be 1:1`,
     );
+    // The pipeline only handles arrays as positionals (buildArgv spreads them; a flag would be
+    // String()-joined into one comma token). Enforce it so no spec introduces an array FLAG.
+    for (const [name, entry] of Object.entries(spec['x-cli'].args)) {
+      if (spec.properties?.[name]?.type === 'array')
+        assert.ok(entry.positional != null, `${file}: array-typed arg '${name}' must be a positional (array flags are unsupported)`);
+    }
     // buildArgv is the MCP path; it rejects mcpHidden args. Sample only the MCP-visible ones,
     // with a value matching each property's declared type so validate() in buildArgv accepts it
     // (an enum needs one of its own values; a number needs an actual number, not the prop name).
@@ -168,4 +174,14 @@ test('conformance: every router command has a spec (and vice versa)', () => {
   const routerCommands = Object.keys(ROUTES).sort();
   const specPaths = COMMANDS.map(file => loadSchema(`commands/${file}`)['x-cli'].path.join(' ')).sort();
   assert.deepEqual(specPaths, routerCommands);
+});
+
+test('conformance: worker-run flags are a subset of msg-send (the CLI parses `worker run` with msg-send options)', () => {
+  const flagNames = spec => Object.entries(spec['x-cli'].args).filter(([, entry]) => entry.flag).map(([name]) => name);
+  const sendFlags = new Set(flagNames(loadSchema('commands/msg-send.json')));
+  for (const name of flagNames(loadSchema('commands/worker-run.json'))) {
+    // cmdDispatch delegates to cmdMsg(argOptions('msg-send')); a worker-run flag msg-send lacks
+    // would fail to parse. worker-run.json exists for the MCP tool + help, so keep it in step.
+    assert.ok(sendFlags.has(name), `worker-run flag '${name}' is not in msg-send and would not parse`);
+  }
 });

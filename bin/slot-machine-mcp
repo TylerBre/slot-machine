@@ -3,7 +3,7 @@
 // shells out to `sm <ns> <cmd> ... --json`, so it stays in lockstep with the CLI.
 // Newline-delimited JSON-RPC 2.0 on stdin/stdout; diagnostics go to stderr.
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { buildArgv, mcpInputSchema, mcpToolName } from '../lib/argspec.mjs';
@@ -13,13 +13,24 @@ import { loadSchema } from '../lib/schema.mjs';
 // symlink, and bin/sm imports ../lib relative to its real path).
 const BIN = fileURLToPath(new URL('./sm', import.meta.url));
 
+// Version, read from package.json so the handshake reports the real build (not a stale literal).
+const VERSION = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version;
+
+// Hard ceiling on a single CLI call. The server processes one JSON-RPC line at a time, so an
+// unbounded call would freeze it; blocking sm ops (lock claim --wait, msg --until-idle) cap at
+// ~10 min internally, so 15 min lets them finish while a genuinely stuck child is still killed.
+const MCP_CALL_TIMEOUT_MS = 15 * 60_000;
+
 // Run sm with args + --json. Returns the CLI's JSON on success, else an error.
 function runSm(args) {
   // Keep --json before any '--' so guarded messages stay positional.
   const dd = args.indexOf('--');
   const argv = dd >= 0 ? [...args.slice(0, dd), '--json', ...args.slice(dd)] : [...args, '--json'];
-  const r = spawnSync(BIN, argv, { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-  if (r.error) return { ok: false, error: `spawn failed: ${r.error.message}` };
+  const r = spawnSync(BIN, argv, { encoding: 'utf8', timeout: MCP_CALL_TIMEOUT_MS, env: { ...process.env, NO_COLOR: '1' } });
+  if (r.error) {
+    const timedOut = r.error.code === 'ETIMEDOUT' || r.signal === 'SIGTERM';
+    return { ok: false, error: timedOut ? `timed out after ${MCP_CALL_TIMEOUT_MS / 1000}s` : `spawn failed: ${r.error.message}` };
+  }
   const out = (r.stdout || '').trim();
   if (r.status !== 0) return { ok: false, error: (r.stderr || out || `exit ${r.status}`).trim() };
   return { ok: true, data: out };
@@ -55,7 +66,7 @@ function handle(req) {
       result: {
         protocolVersion: params?.protocolVersion || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'slot-machine', version: '1.0.0' },
+        serverInfo: { name: 'slot-machine', version: VERSION },
       },
     };
   }

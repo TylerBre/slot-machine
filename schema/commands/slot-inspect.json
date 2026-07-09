@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/commands/slot-inspect.json",
   "title": "slot inspect",
-  "description": "Deep info on one slot: branch, git state (dirty / commits ahead of the base), worker (live/dead), lock owner + LIVE/STALE staleness (and cross-wiring), and every PR for its branch.",
+  "description": "Deep info on one slot: branch, tracker issue, git state (dirty / commits ahead of the base), worker (live/dead), lock owner + LIVE/STALE staleness (and cross-wiring), and every PR for its branch.",
   "x-mcp": true,
   "type": "object",
   "required": ["slot"],
