@@ -4,6 +4,15 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-08
+
+### Fixed
+
+- `session reload` now preserves the session's chosen pane packing. It had floored
+  panes-per-window at 3, so growing a 2-pane session fattened its 2-pane windows to 3
+  instead of appending new 2-pane tabs; it now infers the width from the densest
+  existing slot window.
+
 ## [1.1.0] - 2026-07-08
 
 ### Added
