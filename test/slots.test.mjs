@@ -19,6 +19,7 @@ import {
   paneActivity,
   pickDispatchSlot,
   preflightStatus,
+  reloadPaneWidth,
   resolveSlots,
   selectPanes,
 } from '../lib/slots/pure.mjs';
@@ -677,3 +678,11 @@ test(
     }
   },
 );
+
+test('reloadPaneWidth: preserves the densest existing packing, defaults to 3 when empty', () => {
+  assert.equal(reloadPaneWidth([2, 2, 2]), 2); // a 2-pane layout stays 2 (regression: was floored to 3)
+  assert.equal(reloadPaneWidth([2, 2, 1]), 2); // a partial trailing window does not bump the width
+  assert.equal(reloadPaneWidth([3, 3]), 3);
+  assert.equal(reloadPaneWidth([4, 4, 4]), 4);
+  assert.equal(reloadPaneWidth([]), 3); // no slot windows yet -> the create default
+});
