@@ -4,6 +4,42 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-07-09
+
+Round-3 review: data-safety fixes, a wait primitive, and CLI/MCP interface polish.
+
+### Fixed
+
+- **Committed work is no longer clobbered by dispatch.** `slotGit` now returns `ahead=null`
+  when the commit count cannot be computed (an unresolvable `origin/<base>`), and `classifySlot`
+  treats unknown-ahead as busy (`unknown`) instead of `free` - so a slot sitting on
+  committed-but-unpushed work is never handed out for reuse.
+- **`slot reset` no longer silently discards unmerged commits.** It fetches before measuring,
+  refuses to reset a slot with commits not on `origin/<base>` unless `--force`, and throws on a
+  failed reset rather than dropping the lock and reporting success.
+- **`msg send` no longer types a task into a dead pane.** A pane whose worker has exited to a
+  bare shell is skipped (and reported), instead of having the message run as a shell command.
+- Inbox reports can no longer be lost: `appendReport` and the consume/clear rewrites are
+  serialized by a cross-process lock.
+- Dispatch selection is no longer a race: `--first-free` / `worker run` claims the chosen slot at
+  selection time, so two concurrent dispatches cannot double-book one slot.
+- `--repo` is honored only before a `--` terminator, so it can be sent as literal message text.
+- MCP `serverInfo.version` reports the real build, and MCP calls have a timeout so a blocking
+  call cannot wedge the server.
+
+### Added
+
+- `sm worker wait [-s SPEC] [--timeout SEC]` - block until the targeted workers finish working.
+- `sm --version` / `-V`.
+- `--watch` and `--follow` are accepted interchangeably across `slot ls`, `worker ps`, and
+  `worker logs`.
+- `worker kill` refuses a worker that is actively working unless `--force`.
+
+### Changed
+
+- Numeric MCP parameters are typed `integer`, so a JSON number is accepted uniformly.
+- Missing MCP parameter descriptions filled in; the `issue` column is documented in help.
+
 ## [1.1.1] - 2026-07-08
 
 ### Fixed
