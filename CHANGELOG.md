@@ -4,6 +4,17 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-07-09
+
+### Fixed
+
+- **Dispatch can reclaim merged slots again.** The unmerged-commit guard added to `slot reset`
+  in 1.1.2 also refused squash-merged slots (their pre-squash commits are not ancestors of
+  origin/base), so `sm worker run` / `sm msg send -f` could no longer auto-reset and reuse a
+  merged slot - the core dispatch-to-reusable-slot path. `pickReusable` now force-resets a slot
+  it has already classified `merged` (those commits are merged via squash, safe to discard).
+  Manual `sm slot reset` keeps the conservative guard (still requires `--force`).
+
 ## [1.1.2] - 2026-07-09
 
 Round-3 review: data-safety fixes, a wait primitive, and CLI/MCP interface polish.
