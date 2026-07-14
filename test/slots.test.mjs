@@ -17,7 +17,6 @@ import {
   issueFromText,
   killTargetsFromPgrep,
   lockStale,
-  paneActivity,
   pickDispatchSlot,
   preflightStatus,
   reloadPaneWidth,
@@ -463,14 +462,6 @@ test('activeOverride: a reusable slot with a live working worker is not free', (
   assert.equal(activeOverride({ free: true, worker: 'dead', activity: 'working' }), null);
   // never upgrade a busy slot to free
   assert.equal(activeOverride({ free: false, worker: 'live', activity: 'working' }), null);
-});
-
-test('paneActivity: working / waiting / idle / no-pane', () => {
-  assert.equal(paneActivity('', false), 'no-pane');
-  assert.equal(paneActivity('Actioning… (6m · ↓ 24.1k tokens)\n> ', true), 'working');
-  assert.equal(paneActivity('esc to interrupt', true), 'working');
-  assert.equal(paneActivity('Do you want to proceed?\n❯ 1. Yes', true), 'waiting');
-  assert.equal(paneActivity('│ > \n  auto mode on', true), 'idle');
 });
 
 test('detectRole: inside a slot worktree = worker; elsewhere = dispatcher', () => {

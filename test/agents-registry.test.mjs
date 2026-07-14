@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  activityOf,
   dependents,
   expandHome,
   launchLine,
@@ -57,4 +58,16 @@ test('launchLine builds a claude command for a default slot', async () => {
 test('safeLaunchLine returns null (not throw) when resolution fails', () => {
   resetRosterForTest(); // no roster loaded -> resolveInstance throws -> safeLaunchLine must catch
   assert.equal(safeLaunchLine('/no/such/repo', 'a', '/no/such/repo/x-slot-a'), null);
+});
+
+test('activityOf routes through the resolved plugin and unwraps the envelope', async () => {
+  resetRosterForTest();
+  await loadRoster();
+  assert.equal(activityOf('/r', 'a', 'esc to interrupt', true), 'working');
+  assert.equal(activityOf('/r', 'a', '', false), 'no-pane');
+});
+
+test('activityOf returns "error" (not throw) when the instance cannot be resolved', () => {
+  resetRosterForTest(); // no roster loaded -> resolveInstance throws -> activityOf must catch
+  assert.equal(activityOf('/r', 'a', 'esc to interrupt', true), 'error');
 });
