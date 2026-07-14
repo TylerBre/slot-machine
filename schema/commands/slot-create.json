@@ -9,13 +9,17 @@
   "additionalProperties": false,
   "properties": {
     "label": { "type": "string" },
-    "base": { "type": "string", "description": "base branch to fork from (default: the repo's base branch)" }
+    "base": { "type": "string", "description": "base branch to fork from (default: the repo's base branch)" },
+    "agent": { "type": "string", "description": "per-slot agent-instance override" },
+    "model": { "type": "string", "description": "per-slot model override" }
   },
   "x-cli": {
     "path": ["slot", "create"],
     "args": {
       "label": { "positional": 0 },
-      "base": { "positional": 1 }
+      "base": { "positional": 1 },
+      "agent": { "flag": "--agent" },
+      "model": { "flag": "--model" }
     }
   }
 }

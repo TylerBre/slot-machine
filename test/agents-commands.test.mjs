@@ -1,7 +1,15 @@
 // test/agents-commands.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addInstance, parseEnvPairs, rmInstance, setAgentsDir } from '../lib/agents/index.mjs';
+import {
+  addInstance,
+  assertModelValid,
+  parseEnvPairs,
+  rmInstance,
+  setAgentsDir,
+  setRepoDefault,
+  setSlotOverride,
+} from '../lib/agents/index.mjs';
 
 test('parseEnvPairs turns K=V strings into an object', () => {
   assert.deepEqual(parseEnvPairs(['A=1', 'B=x=y']), { A: '1', B: 'x=y' });
@@ -34,4 +42,23 @@ test('setAgentsDir sets settings.agentsDir', () => {
   const cfg = {};
   setAgentsDir(cfg, '/agents');
   assert.equal(cfg.settings.agentsDir, '/agents');
+});
+
+test('assertModelValid: closed model set rejects an unlisted model', () => {
+  const cfg = { agents: { my: { plugin: 'm.mjs', models: ['fast', 'smart'] } } };
+  assert.throws(() => assertModelValid(cfg, 'my', 'nope'), /fast, smart/);
+  assert.doesNotThrow(() => assertModelValid(cfg, 'my', 'fast'));
+});
+
+test('assertModelValid: open models (claude) accept anything', () => {
+  assert.doesNotThrow(() => assertModelValid({ agents: {} }, 'claude', 'whatever'));
+});
+
+test('setRepoDefault / setSlotOverride write the repo entry', () => {
+  const cfg = { agents: { my: { plugin: 'm.mjs', models: ['fast'] } }, repos: { '/r': { name: 'r' } } };
+  setRepoDefault(cfg, '/r', { agent: 'my', model: 'fast' });
+  assert.equal(cfg.repos['/r'].agent, 'my');
+  assert.equal(cfg.repos['/r'].model, 'fast');
+  setSlotOverride(cfg, '/r', 'b', { agent: 'claude', model: 'sonnet' });
+  assert.deepEqual(cfg.repos['/r'].slots.b, { agent: 'claude', model: 'sonnet' });
 });

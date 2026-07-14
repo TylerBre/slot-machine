@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/repo-config.json",
+  "title": "repo config",
+  "description": "Set the current repo's default agent instance and/or model.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "agent": { "type": "string" },
+    "model": { "type": "string" }
+  },
+  "x-cli": {
+    "path": ["repo", "config"],
+    "args": { "agent": { "flag": "--agent" }, "model": { "flag": "--model" } }
+  }
+}
