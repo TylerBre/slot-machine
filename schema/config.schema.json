@@ -2,13 +2,53 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/config.schema.json",
   "title": "config",
-  "description": "sm's persisted config at ~/.config/slot/config.json: the known repos and the current one. Versioned via `v`; elevated by CONFIG_ELEVATORS in context.mjs before use. Source of truth for the config shape.",
+  "description": "sm's persisted config at ~/.config/slot/config.json: known repos, the current one, global settings, and the agent-instance roster. Versioned via `v`; elevated by CONFIG_ELEVATORS in context.mjs before use.",
   "type": "object",
   "required": ["v", "current", "repos"],
   "additionalProperties": false,
   "properties": {
-    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "v": { "type": "integer", "const": 2, "description": "schema version" },
     "current": { "type": ["string", "null"], "description": "main-worktree dir of the current repo, or null" },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "global settings",
+      "properties": {
+        "agentsDir": { "type": "string", "description": "root for relative user-plugin paths; default ~/.config/slot/agents" }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "roster of agent instances, keyed by instance name",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "use": { "type": "string", "description": "base plugin name (a built-in or another plugin-carrying entry)" },
+          "plugin": { "type": "string", "description": "path to a user plugin module (relative to agentsDir, or absolute)" },
+          "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "env vars for this instance" },
+          "models": { "type": ["array", "string"], "items": { "type": "string" }, "description": "models this instance exposes; \"*\" or omitted = any" },
+          "defaultModel": { "type": "string" },
+          "mcp": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "transport": { "type": "string" },
+                "command": { "type": "string" },
+                "args": { "type": "array", "items": { "type": "string" } },
+                "env": { "type": "object", "additionalProperties": { "type": "string" } },
+                "url": { "type": "string" },
+                "scope": { "type": "string" }
+              },
+              "required": ["name"]
+            }
+          }
+        }
+      }
+    },
     "repos": {
       "type": "object",
       "description": "map of repo main-worktree dir -> derived context",
@@ -17,11 +57,25 @@
         "required": ["name", "root", "prefix", "sessionPrefix", "baseBranch"],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string", "description": "repo name (basename)" },
-          "root": { "type": "string", "description": "dir holding the slots (repo parent)" },
-          "prefix": { "type": "string", "description": "worktree/branch prefix, e.g. acme-slot-" },
-          "sessionPrefix": { "type": "string", "description": "tmux session name prefix" },
-          "baseBranch": { "type": "string", "description": "the repo's base branch" }
+          "name": { "type": "string" },
+          "root": { "type": "string" },
+          "prefix": { "type": "string" },
+          "sessionPrefix": { "type": "string" },
+          "baseBranch": { "type": "string" },
+          "agent": { "type": "string", "description": "repo default instance name" },
+          "model": { "type": "string", "description": "repo default model" },
+          "slots": {
+            "type": "object",
+            "description": "per-slot overrides keyed by slot label",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "agent": { "type": "string" },
+                "model": { "type": "string" }
+              }
+            }
+          }
         }
       }
     }
