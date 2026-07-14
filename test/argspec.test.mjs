@@ -43,6 +43,16 @@ test('toParseArgs: flag args only, keyed by flag name, with types + shorts', () 
   });
 });
 
+test('toParseArgs: an array-typed flag gets multiple: true', () => {
+  const arrayFlagSpec = {
+    'type': 'object',
+    'additionalProperties': false,
+    'properties': { env: { type: 'array', items: { type: 'string' } } },
+    'x-cli': { path: ['agents', 'add'], args: { env: { flag: '--env' } } },
+  };
+  assert.deepEqual(toParseArgs(arrayFlagSpec), { env: { type: 'string', multiple: true } });
+});
+
 test('mcpInputSchema: strips tool-level keys, keeps the arg schema', () => {
   const schema = mcpInputSchema(SPEC);
   assert.equal(schema['x-mcp'], undefined);
@@ -128,17 +138,24 @@ const COMMANDS = readdirSync(new URL('../schema/commands', import.meta.url)).fil
 test('conformance: every spec is well-formed and its MCP-visible args round-trip', () => {
   for (const file of COMMANDS) {
     const spec = loadSchema(`commands/${file}`);
-    assert.equal(typeof spec['x-mcp'], 'boolean', `${file}: x-mcp must be boolean`);
+    // Absent x-mcp means CLI-only (the MCP server only wires up x-mcp: true specs); otherwise
+    // it must be an explicit boolean.
+    assert.ok(
+      spec['x-mcp'] === undefined || typeof spec['x-mcp'] === 'boolean',
+      `${file}: x-mcp must be boolean or absent (CLI-only)`,
+    );
     assert.ok(Array.isArray(spec['x-cli'].path), `${file}: x-cli.path must be an array`);
     assert.deepEqual(
       Object.keys(spec.properties ?? {}).sort(),
       Object.keys(spec['x-cli'].args).sort(),
       `${file}: properties vs x-cli.args must be 1:1`,
     );
-    // The pipeline only handles arrays as positionals (buildArgv spreads them; a flag would be
-    // String()-joined into one comma token). Enforce it so no spec introduces an array FLAG.
+    // The MCP pipeline only handles arrays as positionals (buildArgv spreads them; a flag would be
+    // String()-joined into one comma token). Enforce it only for MCP-exposed specs; a CLI-only
+    // array flag (e.g. repeated --env K=V) is fine - it parses via toParseArgs' `multiple: true`
+    // and never goes through buildArgv in production.
     for (const [name, entry] of Object.entries(spec['x-cli'].args)) {
-      if (spec.properties?.[name]?.type === 'array')
+      if (spec['x-mcp'] === true && spec.properties?.[name]?.type === 'array')
         assert.ok(entry.positional != null, `${file}: array-typed arg '${name}' must be a positional (array flags are unsupported)`);
     }
     // buildArgv is the MCP path; it rejects mcpHidden args. Sample only the MCP-visible ones,

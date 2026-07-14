@@ -55,8 +55,8 @@ test('helpFor returns real text for every route, namespace, the vocab, and the o
     assert.ok(!helpFor(route).includes('no help for'), `helpFor('${route}') fell through`);
 });
 
-test('teaching text never uses the dead vocabulary (tenant/scratch/orchestrator/agent)', () => {
-  const dead = /\b(tenant|scratch|orchestrator|agent)s?\b/i;
+test('teaching text never uses the dead vocabulary (tenant/scratch/orchestrator)', () => {
+  const dead = /\b(tenant|scratch|orchestrator)s?\b/i;
   const teaching = { USAGE, VOCAB, ROLE_DISPATCHER, ROLE_WORKER, ...SECTIONS, ...HELP };
   for (const [key, text] of Object.entries(teaching)) {
     const match = text.match(dead);

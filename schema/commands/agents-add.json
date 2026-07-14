@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/agents-add.json",
+  "title": "agents add",
+  "description": "Add a roster instance: --use an existing plugin, --plugin a new user plugin, or (built-in name, no plugin/use) configure a built-in's default.",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string" },
+    "use": { "type": "string" },
+    "plugin": { "type": "string" },
+    "env": { "type": "array", "items": { "type": "string" } },
+    "models": { "type": "string" },
+    "default-model": { "type": "string" },
+    "mcp": { "type": "string" }
+  },
+  "x-cli": {
+    "path": ["agents", "add"],
+    "args": {
+      "name": { "positional": 0 },
+      "use": { "flag": "--use" },
+      "plugin": { "flag": "--plugin" },
+      "env": { "flag": "--env" },
+      "models": { "flag": "--models" },
+      "default-model": { "flag": "--default-model" },
+      "mcp": { "flag": "--mcp" }
+    }
+  }
+}
