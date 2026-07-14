@@ -3,7 +3,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { dependents, expandHome, resolveEntry, resolveModel } from '../lib/agents/index.mjs';
+import {
+  dependents,
+  expandHome,
+  launchLine,
+  loadRoster,
+  resetRosterForTest,
+  resolveEntry,
+  resolveModel,
+  safeLaunchLine,
+} from '../lib/agents/index.mjs';
 
 test('expandHome expands ~ and $HOME', () => {
   assert.equal(expandHome('~/x'), join(homedir(), 'x'));
@@ -34,4 +43,18 @@ test('dependents: lists instances that `use` a base', () => {
   const cfg = { agents: { base: { plugin: 'b.mjs' }, leaf: { use: 'base' } } };
   assert.deepEqual(dependents(cfg, 'base'), ['leaf']);
   assert.deepEqual(dependents(cfg, 'leaf'), []);
+});
+
+test('launchLine builds a claude command for a default slot', async () => {
+  resetRosterForTest();
+  await loadRoster();
+  // With no repo config, a slot resolves to built-in claude; resume depends on whether a
+  // transcript dir exists for this bogus path (it will not), so we expect a fresh launch.
+  const line = launchLine('/no/such/repo', 'a', '/no/such/repo/x-slot-a');
+  assert.match(line, /^claude( --model .+)?$/);
+});
+
+test('safeLaunchLine returns null (not throw) when resolution fails', () => {
+  resetRosterForTest(); // no roster loaded -> resolveInstance throws -> safeLaunchLine must catch
+  assert.equal(safeLaunchLine('/no/such/repo', 'a', '/no/such/repo/x-slot-a'), null);
 });
