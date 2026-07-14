@@ -83,9 +83,9 @@ test('inUseInstances: repo default + slot overrides + claude', () => {
 test('mcpServersFor: slot server is present by default and overridable by name', () => {
   const cfg = { agents: { x: { use: 'claude', mcp: [{ name: 'corp', command: 'c' }] } } };
   const list = mcpServersFor(cfg, null, 'x');
-  assert.ok(list.find(server => server.name === 'slot'));
+  assert.ok(list.find(server => server.name === 'slot-machine'));
   assert.ok(list.find(server => server.name === 'corp'));
-  const override = mcpServersFor({ agents: { y: { use: 'claude', mcp: [{ name: 'slot', command: 'mine' }] } } }, null, 'y');
-  assert.equal(override.filter(server => server.name === 'slot').length, 1);
-  assert.equal(override.find(server => server.name === 'slot').command, 'mine');
+  const override = mcpServersFor({ agents: { y: { use: 'claude', mcp: [{ name: 'slot-machine', command: 'mine' }] } } }, null, 'y');
+  assert.equal(override.filter(server => server.name === 'slot-machine').length, 1);
+  assert.equal(override.find(server => server.name === 'slot-machine').command, 'mine');
 });
