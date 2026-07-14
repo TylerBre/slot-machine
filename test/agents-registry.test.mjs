@@ -7,8 +7,10 @@ import {
   activityOf,
   dependents,
   expandHome,
+  inUseInstances,
   launchLine,
   loadRoster,
+  mcpServersFor,
   resetRosterForTest,
   resolveEntry,
   resolveModel,
@@ -70,4 +72,20 @@ test('activityOf routes through the resolved plugin and unwraps the envelope', a
 test('activityOf returns "error" (not throw) when the instance cannot be resolved', () => {
   resetRosterForTest(); // no roster loaded -> resolveInstance throws -> activityOf must catch
   assert.equal(activityOf('/r', 'a', 'esc to interrupt', true), 'error');
+});
+
+test('inUseInstances: repo default + slot overrides + claude', () => {
+  const cfg = { agents: {}, repos: { '/r': { agent: 'enterprise-claude', slots: { b: { agent: 'personal-claude' } } } } };
+  const set = inUseInstances(cfg, '/r').sort();
+  assert.deepEqual(set, ['claude', 'enterprise-claude', 'personal-claude']);
+});
+
+test('mcpServersFor: slot server is present by default and overridable by name', () => {
+  const cfg = { agents: { x: { use: 'claude', mcp: [{ name: 'corp', command: 'c' }] } } };
+  const list = mcpServersFor(cfg, null, 'x');
+  assert.ok(list.find(server => server.name === 'slot'));
+  assert.ok(list.find(server => server.name === 'corp'));
+  const override = mcpServersFor({ agents: { y: { use: 'claude', mcp: [{ name: 'slot', command: 'mine' }] } } }, null, 'y');
+  assert.equal(override.filter(server => server.name === 'slot').length, 1);
+  assert.equal(override.find(server => server.name === 'slot').command, 'mine');
 });

@@ -340,7 +340,7 @@ test(
     const rep = json(result);
     assert.equal(rep.ok, true, JSON.stringify(rep.checks));
     const names = rep.checks.map(check => check.name);
-    for (const name of ['tmux', 'git', 'node', 'claude', 'repo', 'slots', 'bin links', 'mcp server']) {
+    for (const name of ['tmux', 'git', 'node', 'agent claude', 'repo', 'slots', 'bin links', '  mcp (claude)']) {
       assert.ok(names.includes(name), `doctor missing check '${name}'`);
     }
   },
