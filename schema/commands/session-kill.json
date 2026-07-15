@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/commands/session-kill.json",
   "title": "session kill",
-  "description": "Kill tmux session(s): pass sessions[] or all=true. Ends the workers' Claude processes; conversations survive on disk.",
+  "description": "Kill tmux session(s): pass sessions[] or all=true. Ends the workers' agent processes; a resumable agent's conversation survives on disk.",
   "x-mcp": true,
   "type": "object",
   "additionalProperties": false,

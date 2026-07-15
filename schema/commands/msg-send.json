@@ -8,7 +8,7 @@
   "required": ["message"],
   "additionalProperties": false,
   "properties": {
-    "message": { "type": "string", "description": "the line to submit into the targeted slot pane(s); a leading '/' hits a Claude slash-command" },
+    "message": { "type": "string", "description": "the line to submit into the targeted slot pane(s); a leading '/' hits the agent's slash-command handling" },
     "slots": { "type": "string", "description": "slot subset spec like \"a\", \"1,3\", \"a-c\" (optional; default all)" },
     "firstFree": {
       "type": "boolean",
