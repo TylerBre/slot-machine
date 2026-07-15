@@ -3,7 +3,7 @@
   "type": "module",
   "version": "1.2.0",
   "private": true,
-  "description": "Run a fleet of Claude Code agents in parallel against one repo - a CLI (sm) and MCP server that orchestrate tmux + git worktrees (slots) so agents never step on each other.",
+  "description": "Run a fleet of coding agents in parallel against one repo (Claude built in, any agent configurable) - a CLI (sm) and MCP server that orchestrate tmux + git worktrees (slots) so agents never step on each other.",
   "license": "GPL-3.0-or-later",
   "homepage": "https://github.com/tylerbre/slot-machine#readme",
   "repository": {

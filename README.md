@@ -2,8 +2,9 @@
 
 # slot machine
 
-Run a fleet of Claude Code agents against one repo, in parallel, without them stepping on
-each other - from a single tmux session you drive like a dispatcher.
+Run a fleet of coding agents against one repo, in parallel, without them stepping on
+each other - from a single tmux session you drive like a dispatcher. Claude Code is the
+built-in default; point any repo or slot at a different agent (see [Agents](#agents)).
 
 `sm` lays out one git worktree ("slot") per agent ("worker"), builds a tmux session with
 one worker pane per slot plus a control window (the "desk"), and gives you the operations
@@ -13,7 +14,7 @@ drive it.
 
 ## The problem it solves
 
-One Claude agent per repo checkout is the natural limit: two agents in one working tree
+One coding agent per repo checkout is the natural limit: two agents in one working tree
 clobber each other's branches, index, and build artifacts. Worktrees fix the isolation,
 but running many of them surfaces the next set of problems - the ones slot machine
 actually exists for:
