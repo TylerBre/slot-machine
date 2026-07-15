@@ -4,6 +4,16 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-07-10
+
+### Added
+
+- `sm version` - the full build + runtime readout: version, node, install path + source (a git
+  sha when run from a checkout, else `packaged`), the MCP entry point, and the current repo.
+  `sm --version` / `-V` stays the bare-number shortcut. `--json` for machine output; exposed over
+  MCP and config-tolerant (runs like `doctor` even when the config is broken) so it can identify a
+  build mid-diagnosis.
+
 ## [1.1.3] - 2026-07-09
 
 ### Fixed

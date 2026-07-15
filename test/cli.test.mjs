@@ -58,6 +58,17 @@ test('cli: unconfigured commands point at sm use; unknown commands hint', () => 
   assert.equal(sm('slot', 'bogus').status, 1);
 });
 
+test('cli: version reports the build identity (--json) and a bare number (--version)', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const info = json(sm('version', '--json'));
+  assert.equal(info.version, pkg.version); // reads the same package.json VERSION the CLI does
+  assert.equal(info.node, process.version);
+  assert.ok(typeof info.install === 'string' && info.install.length > 0);
+  assert.match(info.source, /^(git |packaged)/); // git <sha> from a checkout, else 'packaged'
+  assert.match(info.mcp, /slot-machine-mcp$/);
+  assert.equal(sm('--version').stdout.trim(), pkg.version); // bare -V is just the number
+});
+
 test('cli: help surfaces work without a repo', () => {
   const overview = sm('--help');
   assert.equal(overview.status, 0);

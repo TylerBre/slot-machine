@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/version.json",
+  "title": "version",
+  "description": "Build + runtime identity of this sm install: version, node, install path and source (git sha when run from a checkout, else packaged), the MCP entry point, and the current repo.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-cli": {
+    "path": ["version"],
+    "args": {}
+  }
+}
