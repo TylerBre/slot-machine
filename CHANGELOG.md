@@ -4,6 +4,41 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-14
+
+Agent plugins: slot machine is no longer hardwired to Claude. A repo or an individual
+slot can run any configured coding agent, selected through a plugin contract and a config
+roster. Fully backward compatible - an untouched config keeps running Claude unchanged.
+
+### Added
+
+- **Agent plugin system.** A standard plugin contract - launch, resume, activity,
+  last-message, transcript-age, doctor/setup - behind which each agent's specifics live;
+  the core only ever talks to the contract, through one guarded call path. Claude ships as
+  the built-in plugin and reproduces the prior behavior exactly.
+- **Config roster (schema v2).** `~/.config/slot/config.json` gains a `settings` section and
+  an `agents` roster. A repo has a default agent + model; a slot can override both; named
+  instances reuse a base plugin with their own env, models, and MCP servers - e.g. a personal
+  and an enterprise Claude, each with its own `CLAUDE_CONFIG_DIR`. v1 configs elevate on read;
+  every new field is optional.
+- `sm agents ls | dir [PATH] | add NAME [--use PLUGIN | --plugin FILE] [--env K=V ...]
+  [--models a,b] [--mcp FILE] | rm NAME` - manage the agent roster.
+- `sm repo config [--agent NAME] [--model M]` - set the repo's default agent instance/model.
+- `sm slot config LABEL [--agent NAME] [--model M]`, and `--agent`/`--model` on `sm slot create` -
+  per-slot agent/model overrides.
+- Per-instance MCP servers: an instance can declare extra MCP servers, wired into its agent
+  by `sm doctor --fix`.
+
+### Changed
+
+- **A "worker" is now whichever agent its slot resolves to** (Claude by default), not always
+  Claude. Launch, resume, activity detection, and transcript reading all route through the
+  resolved plugin.
+- **MCP wiring is gated behind `sm doctor --fix`.** `sm top`/`sm doctor` no longer auto-register
+  the slot MCP server; `doctor` reports each in-use agent's version and per-server wiring status,
+  and `--fix` wires any missing server under that instance's config dir. The standard server
+  keeps the name `slot-machine`.
+
 ## [1.1.4] - 2026-07-10
 
 ### Added

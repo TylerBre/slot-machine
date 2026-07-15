@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/slot-config.json",
+  "title": "slot config",
+  "description": "Set a slot's agent-instance and/or model override.",
+  "type": "object",
+  "required": ["label"],
+  "additionalProperties": false,
+  "properties": {
+    "label": { "type": "string" },
+    "agent": { "type": "string" },
+    "model": { "type": "string" }
+  },
+  "x-cli": {
+    "path": ["slot", "config"],
+    "args": { "label": { "positional": 0 }, "agent": { "flag": "--agent" }, "model": { "flag": "--model" } }
+  }
+}

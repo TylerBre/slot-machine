@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/agents-rm.json",
+  "title": "agents rm",
+  "description": "Remove a roster instance (refused if another instance uses it as a base).",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "properties": { "name": { "type": "string" } },
+  "x-cli": { "path": ["agents", "rm"], "args": { "name": { "positional": 0 } } }
+}

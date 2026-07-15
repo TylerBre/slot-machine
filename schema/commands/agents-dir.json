@@ -1,0 +1,10 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/agents-dir.json",
+  "title": "agents dir",
+  "description": "Set (or show) the global directory that relative user-plugin paths resolve against.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": { "path": { "type": "string" } },
+  "x-cli": { "path": ["agents", "dir"], "args": { "path": { "positional": 0 } } }
+}
