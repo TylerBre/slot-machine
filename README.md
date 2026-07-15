@@ -79,7 +79,7 @@ The rigid definitions (`sm help vocab`):
 | -------------- | -------------------------------------------------------------------------------------------------- |
 | **repo**       | the git repo a session is built around; everything derives from it                                 |
 | **slot**       | one worktree of the repo; holds at most one worker and one track of work                           |
-| **worker**     | the Claude process in a slot's pane; does exactly one slot's work                                  |
+| **worker**     | the coding-agent process in a slot's pane (Claude by default, or any configured agent)             |
 | **desk**       | the session's first window; the seat the dispatcher runs the session from                          |
 | **dispatcher** | the role at the desk: finds capacity, hands off, checks in, reclaims - never edits a slot          |
 | **session**    | the tmux session laying out the desk + slot panes for one repo                                     |
@@ -151,6 +151,12 @@ sm repo ls                               known repos (current marked with *)
 sm repo use REPO                         select the current repo (derives root/prefix/session/base)
 sm repo inspect [REPO]                   one repo's resolved context
 sm repo rm REPO                          forget a repo (config only)
+sm repo config [--agent N] [--model M]   set the repo's default agent instance + model
+
+sm agents ls                             the agent roster: each instance, its plugin, models
+sm agents dir [PATH]                     get/set where user plugins live (~/.config/slot/agents)
+sm agents add NAME [--use P|--plugin F]  add an instance (--env K=V, --models a,b, --default-model M, --mcp FILE)
+sm agents rm NAME                        remove an instance (refused if another instance uses it)
 
 sm session ls                            list the repo's running sessions
 sm session create [N] [name] [--kill]    build or attach a session (N = 2|3|4 panes/window)
@@ -162,7 +168,8 @@ sm session kill NAME... | --all          kill session(s); conversations survive 
 sm slot ls [--free|--watch]              classify each slot: free/merged (reusable) vs busy
 sm slot inspect SLOT                     one slot in depth: branch, worker, lock, PRs
 sm slot focus SLOT | -f                  jump the tmux client to a slot's pane
-sm slot create LABEL [base] | rm LABEL   create / remove a slot worktree
+sm slot create LABEL [base] | rm LABEL   create / remove a slot worktree (create takes --agent/--model)
+sm slot config LABEL [--agent] [--model] set a slot's agent-instance/model override
 sm slot reset SLOT [--force]             return a slot to a clean base branch @ origin/<base>
 
 sm worker ps [--watch]                   every worker: live/dead, activity, current task
@@ -225,6 +232,38 @@ Any command also takes `--repo DIR` for a one-off repo without switching:
 sm --repo ~/code/foo slot ls
 ```
 
+## Agents
+
+Each slot runs a coding agent. **Claude is the built-in default**, and an untouched setup
+behaves exactly as before. To run a different agent - or several separately-configured
+Claudes - slot machine resolves each slot to an _agent instance_ through a small plugin
+contract, so the core never hardcodes any one agent.
+
+- **plugin** - the conformance code for an agent type (`claude` is built in): how to launch it,
+  tell whether its pane is working/waiting/idle, read its last message, and resume its transcript.
+- **instance** - a named, configured use of a plugin, kept in the roster
+  (`~/.config/slot/config.json`). Instances sharing a plugin differ only by env, model, and MCP
+  servers, so `personal-claude` and `enterprise-claude` are two instances of the one `claude`
+  plugin, each with its own `CLAUDE_CONFIG_DIR`.
+
+Per slot the agent resolves as: the slot's override -> the repo's default -> the built-in `claude`.
+
+```sh
+sm repo config --agent claude --model sonnet            # this repo's default agent + model
+sm slot create b --agent claude --model haiku           # a slot pinned to a different model
+sm agents add enterprise-claude --use claude \
+  --env CLAUDE_CONFIG_DIR=~/.claude-work                 # a second Claude, different account
+sm repo config --agent enterprise-claude                # make it this repo's default
+sm agents ls                                            # the roster + each instance's status
+```
+
+**User plugins.** Point `sm agents dir` at a directory of plugin modules, then register one:
+`sm agents add my-agent --plugin my-agent.mjs --models fast,smart --default-model fast`. A
+plugin (or instance) can also declare its own MCP servers (`--mcp servers.json`), wired into
+that agent by `sm doctor --fix`. Built-in agents are held to full contract conformance. A user
+plugin that fails to load is skipped and reported by `sm agents ls`; one that loads but
+misbehaves at runtime degrades (its slot is left at a shell) rather than crashing the tool.
+
 ## MCP
 
 `slot-machine-mcp` is a zero-dependency stdio MCP server that wraps the CLI - each tool shells out
@@ -234,6 +273,11 @@ mirror the CLI: `sm_repo_ls`, `sm_repo_use`, `sm_doctor`, `sm_session_ls`, `sm_s
 `sm_slot_reset`, `sm_worker_ps`, `sm_worker_run`, `sm_worker_logs`, `sm_worker_kill`, `sm_worker_role`, `sm_msg_send`,
 `sm_msg_report`, `sm_msg_inbox`, `sm_lock_claim`, `sm_lock_release`, `sm_lock_ls`,
 `sm_lock_prune`.
+
+The agent-roster commands (`sm agents ...`, `sm repo config`, `sm slot config`) are dispatcher
+setup and are intentionally CLI-only - not exposed as MCP tools. A worker reaches this MCP
+server itself; a plugin can register additional MCP servers for its agent, wired by
+`sm doctor --fix`.
 
 ## Develop
 
