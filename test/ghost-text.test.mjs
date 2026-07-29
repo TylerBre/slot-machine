@@ -1,7 +1,7 @@
 // test/ghost-text.test.mjs - the ANSI faint-span stripper behind the composer-cleared check.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stripGhostText } from '../lib/exec.mjs';
+import { stripGhostText } from '../lib/mux/index.mjs';
 
 const ESC = '\x1B';
 

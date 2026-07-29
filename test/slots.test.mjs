@@ -83,43 +83,58 @@ test('resolveSlots: rejects bad input', () => {
   }
 });
 
+// A minimal Pane record (see lib/mux/contract.mjs); label defaults to '' = pre-label pane.
+const pane = (id, cwd, label = '') => ({ id, cwd, label });
+
 test('selectPanes: no filter picks all slot panes, skips desk/non-slot', () => {
   const docs = '/home/u/Documents';
-  const lines = [
-    `%0 ${docs}`, // desk
-    `%1 ${docs}/acme-slot-a`,
-    `%2 ${docs}/acme-slot-b`,
-    `%3 /somewhere/else`, // unrelated pane
-    ``, // trailing blank
+  const panes = [
+    pane('%0', docs), // desk
+    pane('%1', `${docs}/acme-slot-a`),
+    pane('%2', `${docs}/acme-slot-b`),
+    pane('%3', '/somewhere/else'), // unrelated pane
+    null, // dropped entry
   ];
-  assert.deepEqual(selectPanes(lines, docs, 'acme-slot-', null), [
-    { pid: '%1', lbl: 'a' },
-    { pid: '%2', lbl: 'b' },
+  assert.deepEqual(selectPanes(panes, docs, 'acme-slot-', null), [
+    { id: '%1', lbl: 'a' },
+    { id: '%2', lbl: 'b' },
   ]);
 });
 
 test('selectPanes: filters to wanted labels, preserves order', () => {
   const docs = '/home/u/Documents';
-  const lines = ['a', 'b', 'c'].map((lbl, idx) => `%${idx} ${docs}/acme-slot-${lbl}`);
-  assert.deepEqual(selectPanes(lines, docs, 'acme-slot-', set('a', 'c')), [
-    { pid: '%0', lbl: 'a' },
-    { pid: '%2', lbl: 'c' },
+  const panes = ['a', 'b', 'c'].map((lbl, idx) => pane(`%${idx}`, `${docs}/acme-slot-${lbl}`));
+  assert.deepEqual(selectPanes(panes, docs, 'acme-slot-', set('a', 'c')), [
+    { id: '%0', lbl: 'a' },
+    { id: '%2', lbl: 'c' },
   ]);
 });
 
 test('selectPanes: rejects a nested path under a slot dir', () => {
   const docs = '/home/u/Documents';
-  assert.deepEqual(selectPanes([`%1 ${docs}/acme-slot-a/sub`], docs, 'acme-slot-', null), []);
+  assert.deepEqual(selectPanes([pane('%1', `${docs}/acme-slot-a/sub`)], docs, 'acme-slot-', null), []);
+});
+
+test('selectPanes: a stamped label wins over cwd - survives the worker cd-ing away', () => {
+  const docs = '/home/u/Documents';
+  const panes = [
+    pane('%1', '/somewhere/else', 'a'), // label stamped at spawn; cwd moved
+    pane('%2', `${docs}/acme-slot-b`), // pre-label pane: cwd fallback
+  ];
+  assert.deepEqual(selectPanes(panes, docs, 'acme-slot-', null), [
+    { id: '%1', lbl: 'a' },
+    { id: '%2', lbl: 'b' },
+  ]);
 });
 
 test('selectPanes: one entry PER pane - a slot shown in two panes yields two targets', () => {
   // Documented contract: broadcast/-s delivery hits every matching pane (msg send then dedups the
   // claim by lock dir, which is idempotent). This is deliberate, not the per-label dedup slotPanes does.
   const docs = '/home/u/Documents';
-  const lines = [`%1 ${docs}/acme-slot-a`, `%2 ${docs}/acme-slot-a`];
-  assert.deepEqual(selectPanes(lines, docs, 'acme-slot-', null), [
-    { pid: '%1', lbl: 'a' },
-    { pid: '%2', lbl: 'a' },
+  const panes = [pane('%1', `${docs}/acme-slot-a`), pane('%2', `${docs}/acme-slot-a`)];
+  assert.deepEqual(selectPanes(panes, docs, 'acme-slot-', null), [
+    { id: '%1', lbl: 'a' },
+    { id: '%2', lbl: 'a' },
   ]);
 });
 

@@ -4,6 +4,41 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Multiplexer plugins: slot machine is no longer hardwired to tmux. The session/pane layer
+sits behind the same plugin-contract pattern the agent system uses; tmux stays the built-in
+default and an untouched config behaves exactly as before. Zellij (>= 0.44) ships as the
+second backend.
+
+### Added
+
+- **Multiplexer plugin system.** A backend contract over a session > group > pane model -
+  create/list/kill sessions, spawn groups and panes (creation ops return the handles callers
+  address by), structured pane records, literal-type/submit/capture IO primitives, focus and
+  attach - dispatched through the same guarded call path as agent plugins. The send
+  reliability loop (settle, verify the composer cleared, retry) lives once in core, on top of
+  the primitives.
+- **Zellij backend (experimental), `settings.mux: zellij`.** Built on zellij 0.44's CLI
+  automation surface and version-gated against older zellij. Pane labels are zellij pane
+  names (rendered natively on the frame - no config block needed). Known v1 limits: `sm
+  worker kill` cannot resolve a pane pid (end the worker from inside its pane), and worker
+  liveness for shell panes uses a prompt-scan heuristic because zellij does not report a
+  pane's foreground command.
+- **Pane labels.** Worker panes are stamped with their slot label at spawn (tmux: the
+  sm-owned `@smslot` pane option; zellij: the pane name), and slot correlation is
+  label-first - it now survives a worker `cd`-ing away from its worktree. Panes from
+  sessions built before labels existed still correlate by directory.
+
+### Changed
+
+- **The whole core is multiplexer-agnostic.** Session build/reload/attach/kill, message
+  delivery, worker status/logs/kill, and slot focus all speak the backend contract;
+  `exec.mjs` is git/gh/OS-process plumbing only. Session windows are addressed by returned
+  handles - the tmux `base-index` arithmetic is gone.
+- `sm doctor` reports the active multiplexer backend by name, and skips backend-specific
+  checks (pane-title config) on backends that do not need them.
+
 ## [1.3.0] - 2026-07-29
 
 Dispatcher quick wins, ported from a design comparison against firstmate
