@@ -2,10 +2,12 @@
 // rotation generations, rename-based rotation that fails closed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendJournal, journalSize, readJournal, rotateJournalIfNeeded } from '../lib/slots/journal.mjs';
+import { readWorker } from '../lib/slots/locks.mjs';
+import { journalDispatch, recordWorker } from '../lib/commands/shared.mjs';
 
 function freshJournalDir(tag) {
   const dir = join(tmpdir(), `sm-journal-${tag}-${process.pid}`);
@@ -101,6 +103,49 @@ test('journal: a dead rotator is broken and rotation proceeds', () => {
     process.env.SLOT_JOURNAL_MAX_BYTES = '1'; // now everything is over cap
     assert.equal(rotateJournalIfNeeded('t'), true); // broken by rename, rotation proceeds
     assert.equal(existsSync(join(dir, 't.jsonl.1')), true);
+  }
+  finally {
+    cleanup(dir);
+  }
+});
+
+// --- dispatch/spawn recording helpers (lib/commands/shared.mjs) ----------------------------------
+// NOTE: sm msg send requires a live multiplexer session, which the hermetic fixtures cannot
+// provide - the wiring is exercised in the plan's live scratch-slot verification; the
+// load-bearing recording logic is unit-tested here.
+
+test('recordWorker: journals worker-created once, updates the section on re-record', () => {
+  const dir = freshJournalDir('record');
+  const slotDir = join(dir, 'slotdir');
+  mkdirSync(slotDir, { recursive: true });
+  try {
+    recordWorker(slotDir, 'a', { agent: 'claude', model: null, transport: 'pane' });
+    recordWorker(slotDir, 'a', { agent: 'claude', model: 'opus', transport: 'pane' }); // re-spawn
+    // recordWorker journals under the process's resolved REPO_NAME - read whatever file landed
+    const journalFile = readdirSync(dir).find(name => name.endsWith('.jsonl'));
+    assert.ok(journalFile, 'a journal file was written');
+    const records = readFileSync(join(dir, journalFile), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(records.filter(rec => rec.type === 'worker-created').length, 1); // first time only
+    assert.equal(readWorker(slotDir).model, 'opus'); // section updated by the second record
+    assert.equal(readWorker(slotDir).agent, 'claude');
+  }
+  finally {
+    cleanup(dir);
+  }
+});
+
+test('recordWorker/journalDispatch: journal failure degrades to a warning, never blocks', () => {
+  const dir = freshJournalDir('degrade');
+  const slotDir = join(dir, 'slotdir');
+  mkdirSync(slotDir, { recursive: true });
+  // make the journal unwritable: point the dir seam at a FILE
+  const blocker = join(dir, 'not-a-dir');
+  writeFileSync(blocker, 'x');
+  process.env.SLOT_JOURNAL_DIR = blocker;
+  try {
+    recordWorker(slotDir, 'a', { agent: 'claude', transport: 'pane' }); // must not throw
+    assert.equal(readWorker(slotDir).agent, 'claude'); // the document write still happened
+    journalDispatch('a', 'a task'); // must not throw either
   }
   finally {
     cleanup(dir);
