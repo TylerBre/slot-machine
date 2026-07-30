@@ -343,6 +343,108 @@ test('cli: slot rm removes the worktree', () => {
   assert.match(sm('slot', 'rm', 'b').stderr, /no worktree/);
 });
 
+// --- worktree-document lifecycle through the destructive verbs (persistence layer) --------------
+
+// Seed a sectioned document directly (the CLI writes worker sections at dispatch, which the
+// hermetic fixture cannot reach without panes).
+function seedDoc(dir, { claim = null, worker = null, turn = null } = {}) {
+  writeFileSync(
+    join(dir, '.worktree-lock'),
+    `${JSON.stringify({ v: 2, cwd: dir, ts: Date.now(), claim, worker, turn })}\n`,
+  );
+}
+const seedWorker = sessionId => ({ agent: 'claude', model: null, transport: 'pane', sessionId, createdAt: 1 });
+function selfTurn(task) {
+  const lstart = spawnSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8' });
+  return { pid: process.pid, pidStart: lstart.stdout.trim(), startedAt: Date.now(), task };
+}
+const readDocRaw = dir => JSON.parse(readFileSync(join(dir, '.worktree-lock'), 'utf8'));
+
+test('cli: a dirty force-reset keeps the document - claim cleared, worker intact, dirt gone', () => {
+  assert.equal(json(sm('slot', 'create', 'd', '--json')).slot, 'd');
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  seedDoc(slotD, { claim: { session: 's', task: 'old work', issue: null, ts: 1 }, worker: seedWorker('sess-keep') });
+  writeFileSync(join(slotD, 'junk.tmp'), 'stray build artifact'); // real dirt -> the clean -fd path runs
+  const forced = sm('slot', 'reset', 'd', '--force', '--json');
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.equal(existsSync(join(slotD, 'junk.tmp')), false); // user dirt cleaned
+  assert.equal(existsSync(join(slotD, '.worktree-lock')), true); // the document SURVIVED git clean
+  const doc = readDocRaw(slotD);
+  assert.equal(doc.claim, null); // claim released by the reset
+  assert.equal(doc.worker.sessionId, 'sess-keep'); // the conversation survives a reset
+});
+
+test('cli: reset refuses a turn in flight; --force breaks it via the protocol', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  seedDoc(slotD, { worker: seedWorker('sess-keep'), turn: selfTurn('mid-flight') }); // live holder: this test process
+  const refused = sm('slot', 'reset', 'd');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /turn in flight.*--force/);
+  const forced = sm('slot', 'reset', 'd', '--force', '--json');
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.equal(readDocRaw(slotD).turn, null); // broken through the serialized write, not blind unlink
+});
+
+test('cli: reset --hard-worker journals worker-replaced BEFORE clearing the conversation', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  const journalDir = join(FAKE, 'journal');
+  seedDoc(slotD, { worker: seedWorker('sess-gone') });
+  const result = runBin(SM, ['slot', 'reset', 'd', '--hard-worker', '--json'], {
+    env: { ...env, SLOT_JOURNAL_DIR: journalDir },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(join(slotD, '.worktree-lock')), false); // all-null document unlinks
+  const lines = readFileSync(join(journalDir, 'myapp.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const replaced = lines.find(rec => rec.type === 'worker-replaced');
+  assert.equal(replaced.slot, 'd');
+  assert.equal(replaced.prevSessionId, 'sess-gone');
+});
+
+test('cli: reset --hard-worker record lands even when the clear fails (record-before-mutation)', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  const journalDir = join(FAKE, 'journal-inject');
+  seedDoc(slotD, { worker: seedWorker('sess-stuck') });
+  // hold the document write mutex with THIS live process: the worker-clear mutation must fail
+  const lstart = spawnSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8' });
+  writeFileSync(join(slotD, '.worktree-lock.tmp'), JSON.stringify({ pid: process.pid, pidStart: lstart.stdout.trim(), ts: Date.now() }));
+  try {
+    const result = runBin(SM, ['slot', 'reset', 'd', '--hard-worker'], {
+      env: { ...env, SLOT_JOURNAL_DIR: journalDir, SLOT_DOC_MUTEX_MS: '200' },
+    });
+    assert.equal(result.status, 1); // the blocked mutation fails the reset loudly
+    const lines = readFileSync(join(journalDir, 'myapp.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(lines.some(rec => rec.type === 'worker-replaced')); // the record preceded the mutation...
+    assert.equal(readDocRaw(slotD).worker.sessionId, 'sess-stuck'); // ...which never happened
+  }
+  finally {
+    rmSync(join(slotD, '.worktree-lock.tmp'), { force: true });
+  }
+});
+
+test('cli: slot ls reads a worktree holding only sm artifacts as clean, and rm needs no --force', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  seedDoc(slotD, { worker: seedWorker(null) });
+  writeFileSync(join(slotD, '.worktree-lock.tmp.broken.999'), 'husk'); // a broken mutex husk is sm's dirt too
+  const row = json(sm('slot', 'ls', '--json')).find(entry => entry.slot === 'd');
+  assert.equal(row.status, 'free'); // sm artifacts are never user dirt
+  // rm: the document blocks `git worktree remove` unless sm removes it first
+  const removed = json(sm('slot', 'rm', 'd', '--json'));
+  assert.equal(removed.removed, true);
+  assert.equal(existsSync(slotD), false);
+});
+
+test('cli: rm refuses a turn in flight; --force breaks it and removes', () => {
+  assert.equal(json(sm('slot', 'create', 'e', '--json')).slot, 'e');
+  const slotE = join(FAKE, 'code', 'myapp-slot-e');
+  seedDoc(slotE, { turn: selfTurn('rm-guard') });
+  const refused = sm('slot', 'rm', 'e');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /turn in flight.*--force/);
+  const forced = json(sm('slot', 'rm', 'e', '--force', '--json'));
+  assert.equal(forced.removed, true);
+  assert.equal(existsSync(slotE), false);
+});
+
 test(
   'cli: doctor reports repo health and exits 0 on a sane setup',
   { skip: spawnSync('tmux', ['-V']).status !== 0 ? 'doctor ok requires tmux installed' : false },
