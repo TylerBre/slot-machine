@@ -29,14 +29,18 @@ import {
   elevateLock,
   elevateResourceLock,
   LOCK_SCHEMA_VERSION,
+  readDoc,
   readLock,
   readLockFull,
+  readTurn,
+  readWorker,
   removeLock,
   removeResource,
   RESOURCE_LOCK_SCHEMA_VERSION,
   validateLock,
   validateResourceLock,
   writeLock,
+  writeWorker,
 } from '../lib/slots/locks.mjs';
 import { LOCK_FILENAME } from '../lib/constants.mjs';
 import { resolveActive } from '../lib/context.mjs';
@@ -177,27 +181,52 @@ test('issueFromText: parses a tracker id from a branch or task, generic (not tra
   assert.equal(issueFromText(null), null);
 });
 
-test('elevateLock: a legacy lock elevates to the current schema, adopts cwd, drops the old slot key', () => {
-  // legacy locks carried `slot` (label) + `transcript`; both are dropped in favor of cwd identity
+test('elevateLock: a legacy lock elevates to the current sectioned schema, adopts cwd, drops slot/pane', () => {
+  // legacy locks carried `slot` (label) + `transcript`; both are dropped in favor of cwd identity.
+  // the wrap step (v1 -> v2) sections the document: flat claim fields move under `claim`.
   const up = elevateLock(
     { slot: 'c', transcript: '/t/gemini-c/x.jsonl', task: 'fix sc-9812 thing', ts: 1 },
     '/x/gemini-c',
   );
   assert.equal(up.v, LOCK_SCHEMA_VERSION);
-  assert.equal(up.cwd, '/x/gemini-c'); // cwd stamped from the read path
+  assert.equal(up.cwd, '/x/gemini-c'); // cwd stamped from the read path, stays top-level (identity)
   assert.equal('slot' in up, false);
-  assert.equal(up.issue, 'sc-9812'); // issue backfilled from the task
+  assert.equal(up.claim.issue, 'sc-9812'); // issue backfilled from the task, now under claim
+  assert.equal(up.worker, null);
+  assert.equal(up.turn, null);
   assert.deepEqual(validateLock(up), []); // an elevated legacy lock conforms to the schema
-  const cur = elevateLock({ v: 1, cwd: '/x/gemini-c', issue: 'sc-1', ts: 2 });
-  assert.equal(cur.v, 1);
-  assert.equal(cur.issue, 'sc-1');
+
+  // a flat v1 lock (the previous current shape) wraps: pane dropped, resources move under claim
+  const wrapped = elevateLock({
+    v: 1,
+    cwd: '/x/gemini-c',
+    session: 'acme3',
+    pane: '%9',
+    task: 'do X',
+    issue: 'sc-1',
+    ts: 2,
+    resources: [{ v: 2, resource: 'browser', task: null, ts: 3 }],
+  });
+  assert.equal(wrapped.v, LOCK_SCHEMA_VERSION);
+  assert.equal(wrapped.claim.session, 'acme3');
+  assert.equal(wrapped.claim.issue, 'sc-1');
+  assert.equal(wrapped.claim.resources[0].resource, 'browser'); // moved under claim
+  assert.equal('pane' in wrapped.claim, false); // the stale-by-read-time handle is gone
+  assert.equal('pane' in wrapped, false);
+  assert.equal(wrapped.worker, null);
+  assert.equal(wrapped.turn, null);
+  assert.deepEqual(validateLock(wrapped), []);
 });
 
-test('validateLock: flags missing-required, wrong-type, and unexpected keys', () => {
-  assert.deepEqual(validateLock({ v: 1, cwd: '/x/gemini-c', ts: 1, issue: 'sc-1', session: null }), []);
+test('validateLock: flags missing-required, wrong-type, and unexpected keys (sectioned shape)', () => {
+  const ver = LOCK_SCHEMA_VERSION;
+  assert.deepEqual(
+    validateLock({ v: ver, cwd: '/x/gemini-c', ts: 1, claim: { session: null, task: null, issue: 'sc-1', ts: 1 }, worker: null, turn: null }),
+    [],
+  );
   assert.ok(validateLock({ cwd: '/x', ts: 1 }).some(prob => prob.includes('required \'v\'')));
-  assert.ok(validateLock({ v: 1, cwd: '/x', ts: 'nope' }).some(prob => prob.includes('\'ts\'')));
-  assert.ok(validateLock({ v: 1, cwd: '/x', ts: 1, bogus: 1 }).some(prob => prob.includes('unexpected')));
+  assert.ok(validateLock({ v: ver, cwd: '/x', ts: 'nope' }).some(prob => prob.includes('\'ts\'')));
+  assert.ok(validateLock({ v: ver, cwd: '/x', ts: 1, bogus: 1 }).some(prob => prob.includes('unexpected')));
 });
 
 test('resource lock: elevate stamps version + drops legacy holder fields; validate is schema-driven', () => {
@@ -223,7 +252,7 @@ test('resource lock: elevate stamps version + drops legacy holder fields; valida
 });
 
 test('resources: add/remove are pure, dedup on re-claim, and validate via the worktree $ref', () => {
-  const base = { v: 1, cwd: '/x/gemini-f', ts: 1 };
+  const base = { session: null, task: null, issue: null, ts: 1 }; // a claim section (flat claim shape)
   const one = addResource(base, 'browser', 'shot');
   assert.equal(one.resources.length, 1);
   assert.equal(one.resources[0].resource, 'browser');
@@ -232,16 +261,125 @@ test('resources: add/remove are pure, dedup on re-claim, and validate via the wo
   const reclaim = addResource(two, 'browser', 'newshot'); // re-claim refreshes, no dupe
   assert.equal(reclaim.resources.filter(res => res.resource === 'browser').length, 1);
   assert.equal(reclaim.resources.find(res => res.resource === 'browser').task, 'newshot');
-  // the worktree schema $refs the resource schema, so a lock with embedded resources validates
-  assert.deepEqual(validateLock(reclaim), []);
+  // the worktree schema $refs the resource schema under claim, so a sectioned doc validates
+  const doc = { v: LOCK_SCHEMA_VERSION, cwd: '/x/gemini-f', ts: 1, claim: reclaim, worker: null, turn: null };
+  assert.deepEqual(validateLock(doc), []);
   const released = removeResource(reclaim, 'browser');
   assert.equal(
     released.resources.some(res => res.resource === 'browser'),
     false,
   );
-  // a malformed embedded resource is flagged with an indexed path
-  const bad = { ...base, resources: [{ v: RESOURCE_LOCK_SCHEMA_VERSION, resource: 'browser', ts: 'nope' }] };
+  // a malformed embedded resource is flagged with an indexed path under the claim
+  const bad = { ...doc, claim: { ...reclaim, resources: [{ v: RESOURCE_LOCK_SCHEMA_VERSION, resource: 'browser', ts: 'nope' }] } };
   assert.ok(validateLock(bad).some(prob => prob.includes('resources[0]')));
+});
+
+test('sectioned document: readLock/readDoc/readWorker/readTurn contracts', () => {
+  const dir = join(tmpdir(), `sm-doc-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  try {
+    // absent file: everything reads empty
+    assert.equal(readLock(dir), null);
+    assert.equal(readDoc(dir), null);
+    assert.equal(readWorker(dir), null);
+    assert.equal(readTurn(dir), null);
+
+    // a legacy flat v1 file on disk reads as a sectioned doc; readLock returns the flat claim contract
+    const flat = { v: 1, cwd: dir, session: 'acme3', pane: '%9', task: 'fix sc-77 x', issue: 'sc-77', ts: 5 };
+    writeFileSync(join(dir, LOCK_FILENAME), `${JSON.stringify(flat)}\n`);
+    const lock = readLock(dir);
+    assert.equal(lock.session, 'acme3');
+    assert.equal(lock.task, 'fix sc-77 x');
+    assert.equal(lock.issue, 'sc-77');
+    assert.equal(lock.ts, 5);
+    assert.equal(lock.cwd, dir); // identity still surfaced on the readLock contract
+    assert.deepEqual(lock.resources, []);
+    assert.equal(readWorker(dir), null); // legacy file: no worker/turn sections
+    assert.equal(readTurn(dir), null);
+
+    // a sectioned doc with worker but NO claim: readLock is null (unclaimed), worker reads through
+    const doc = {
+      v: LOCK_SCHEMA_VERSION,
+      cwd: dir,
+      ts: 6,
+      claim: null,
+      worker: { agent: 'claude', model: null, transport: 'pane', sessionId: null, createdAt: 6 },
+      turn: null,
+    };
+    writeFileSync(join(dir, LOCK_FILENAME), `${JSON.stringify(doc)}\n`);
+    assert.equal(readLock(dir), null); // unclaimed - classify/lockIsLive see no lock
+    assert.equal(readWorker(dir).agent, 'claude');
+    assert.equal(readTurn(dir), null);
+
+    // corrupt file: readLock flags unparseable, section accessors degrade to null
+    writeFileSync(join(dir, LOCK_FILENAME), 'not json');
+    assert.equal(readLock(dir).unparseable, true);
+    assert.equal(readWorker(dir), null);
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('sectioned document: writeLock/removeLock preserve sibling sections', () => {
+  const dir = join(tmpdir(), `sm-doc-sec-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  try {
+    // seed a doc that has a worker (and a claim with a resource) - the sections writeLock must not eat
+    const seeded = {
+      v: LOCK_SCHEMA_VERSION,
+      cwd: dir,
+      ts: 1,
+      claim: { session: 'old', task: null, issue: null, ts: 1, resources: [{ v: 2, resource: 'browser', task: null, ts: 2 }] },
+      worker: { agent: 'claude', model: null, transport: 'pane', sessionId: 'sess-1', createdAt: 1 },
+      turn: null,
+    };
+    writeFileSync(join(dir, LOCK_FILENAME), `${JSON.stringify(seeded)}\n`);
+
+    // re-claim: writeLock replaces the claim but preserves worker (and does not accept pane)
+    writeLock(dir, { session: 'acme4', task: 'next task' });
+    const doc = readDoc(dir);
+    assert.equal(doc.claim.session, 'acme4');
+    assert.equal(readWorker(dir).sessionId, 'sess-1'); // sibling section survived the claim write
+    assert.equal('pane' in doc.claim, false);
+
+    // removeLock clears the claim but keeps the file while a worker exists
+    assert.equal(removeLock(dir), true);
+    assert.equal(existsSync(join(dir, LOCK_FILENAME)), true); // file survives - worker identity kept
+    assert.equal(readLock(dir), null);
+    assert.equal(readWorker(dir).agent, 'claude');
+    assert.equal(removeLock(dir), false); // nothing left to release
+
+    // clearing the worker too makes the doc all-null; removing then unlinks
+    writeWorker(dir, null);
+    assert.equal(existsSync(join(dir, LOCK_FILENAME)), false); // all-null document == no document
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('sectioned document: readLockFull surfaces claim resources from the sectioned shape', () => {
+  const dir = join(tmpdir(), `sm-doc-res-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  try {
+    const doc = {
+      v: LOCK_SCHEMA_VERSION,
+      cwd: dir,
+      ts: 1,
+      claim: { session: 's', task: null, issue: null, ts: 1, resources: [{ resource: 'browser', task: 'shot', ts: 2 }] },
+      worker: { agent: 'claude', model: null, transport: 'pane', sessionId: null, createdAt: 1 },
+      turn: null,
+    };
+    writeFileSync(join(dir, LOCK_FILENAME), `${JSON.stringify(doc)}\n`);
+    const full = readLockFull(dir);
+    assert.equal(full.resources[0].v, RESOURCE_LOCK_SCHEMA_VERSION); // legacy embedded record elevated
+    assert.equal(full.resources[0].resource, 'browser');
+    assert.equal(full.cwd, dir);
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('classifySlot: idle base branch is free', () => {

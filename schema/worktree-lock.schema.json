@@ -2,29 +2,69 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/worktree-lock.schema.json",
   "title": "worktree-lock",
-  "description": "The .worktree-lock document written in each claimed slot worktree - the one lockfile. Versioned via `v`; a lock written by an older sm is upgraded to this version by the elevator ladder in slots.mjs (elevateLock) before use. This file is the source of truth for the slot claim AND for any shared resources the slot holds (see the `resources` array).",
+  "description": "The .worktree-lock document written in each slot worktree - the worktree's state of record, in sections: `claim` (the lock: who dispatched what, plus any shared resources held), `worker` (the conversation bound to this slot), and `turn` (an in-flight session turn). The filename is grandfathered legacy naming. Versioned via `v`; a document written by an older sm is upgraded by the elevator ladder in locks.mjs (elevateLock) before use. Sections are nullable; an all-null document is equivalent to no document.",
   "type": "object",
   "required": ["v", "cwd", "ts"],
   "additionalProperties": false,
   "properties": {
-    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "v": { "type": "integer", "const": 2, "description": "schema version" },
     "cwd": {
       "type": "string",
-      "description": "absolute path of the slot worktree - the lock's identity and source of truth; the slot label is derived from its basename"
+      "description": "absolute path of the slot worktree - the document's identity and source of truth; the slot label is derived from its basename"
     },
-    "session": { "type": ["string", "null"], "description": "tmux session that claimed the slot" },
-    "pane": { "type": ["string", "null"], "description": "tmux pane id of the worker" },
-    "task": { "type": ["string", "null"], "description": "one-line task the slot was dispatched" },
-    "issue": {
-      "type": ["string", "null"],
-      "description": "tracker issue id (e.g. sc-10132); this lock is its source of truth"
+    "ts": { "type": "integer", "description": "last write, epoch ms" },
+    "claim": {
+      "type": ["object", "null"],
+      "description": "the slot claim (the lock). null = unclaimed. Cleared by reset/prune; written by dispatch.",
+      "additionalProperties": false,
+      "properties": {
+        "session": { "type": ["string", "null"], "description": "multiplexer session that claimed the slot" },
+        "task": { "type": ["string", "null"], "description": "one-line task the slot was dispatched" },
+        "issue": {
+          "type": ["string", "null"],
+          "description": "tracker issue id (e.g. sc-10132); this claim is its source of truth"
+        },
+        "ts": { "type": "integer", "description": "claim time, epoch ms" },
+        "transcript": {
+          "type": ["string", "null"],
+          "description": "DEPRECATED - legacy transcript path still parsed for pane-worker staleness and cross-wiring; no new writers"
+        },
+        "resources": {
+          "type": "array",
+          "description": "shared machine-level resources this slot currently holds (browser, port, ...); each element is described by resource-lock.schema.json",
+          "items": { "$ref": "resource-lock.schema.json" },
+          "default": []
+        }
+      },
+      "required": ["ts"]
     },
-    "ts": { "type": "integer", "description": "claim time, epoch ms" },
-    "resources": {
-      "type": "array",
-      "description": "shared machine-level resources this slot currently holds (browser, port, ...); each element is described by resource-lock.schema.json",
-      "items": { "$ref": "resource-lock.schema.json" },
-      "default": []
+    "worker": {
+      "type": ["object", "null"],
+      "description": "the conversation bound to this slot. null = no worker has ever run here. Survives reset; cleared by reset --hard-worker and slot rm.",
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "type": "string", "description": "resolved agent instance name at last (re)spawn" },
+        "model": { "type": ["string", "null"], "description": "model override in effect, if any" },
+        "transport": { "type": "string", "enum": ["pane", "headless"], "description": "how the worker is driven" },
+        "sessionId": {
+          "type": ["string", "null"],
+          "description": "CURRENT session id - written only from authoritative sources (a headless turn's result JSON), never inferred"
+        },
+        "createdAt": { "type": "integer", "description": "when this worker (conversation) began, epoch ms" }
+      },
+      "required": ["agent", "transport", "createdAt"]
+    },
+    "turn": {
+      "type": ["object", "null"],
+      "description": "an in-flight session turn. null = no turn running. Holder identity is pid + start time (pid reuse cannot fake a live holder); stale turns are cleared lazily by the next serialized claimant.",
+      "additionalProperties": false,
+      "properties": {
+        "pid": { "type": "integer", "description": "turn holder process id" },
+        "pidStart": { "type": ["integer", "string"], "description": "holder process start-time token (pid identity)" },
+        "startedAt": { "type": "integer", "description": "turn start, epoch ms" },
+        "task": { "type": ["string", "null"], "description": "what the turn is doing" }
+      },
+      "required": ["pid", "pidStart", "startedAt"]
     }
   }
 }
