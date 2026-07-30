@@ -433,6 +433,21 @@ test('cli: slot ls reads a worktree holding only sm artifacts as clean, and rm n
   assert.equal(existsSync(slotD), false);
 });
 
+test('cli: inspect and floor surface the worker record; doctor reports persistence health', () => {
+  const slotA = join(FAKE, 'code', 'myapp-slot-a');
+  seedDoc(slotA, { worker: { agent: 'claude', model: 'opus', transport: 'pane', sessionId: 'sess-9', createdAt: 5 } });
+  const inspected = json(sm('slot', 'inspect', 'a', '--json'));
+  assert.equal(inspected.workerRecord.agent, 'claude');
+  assert.equal(inspected.workerRecord.transport, 'pane');
+  assert.equal(inspected.workerRecord.sessionId, 'sess-9');
+  const floorRow = json(sm('floor', '--json')).slots.find(row => row.slot === 'a');
+  assert.equal(floorRow.transport, 'pane');
+  // a legacy slot (no document) reads null transport - zero behavior change
+  rmSync(join(slotA, '.worktree-lock'), { force: true });
+  assert.equal(json(sm('floor', '--json')).slots.find(row => row.slot === 'a').transport, null);
+  assert.equal(json(sm('slot', 'inspect', 'a', '--json')).workerRecord, null);
+});
+
 test('cli: rm refuses a turn in flight; --force breaks it and removes', () => {
   assert.equal(json(sm('slot', 'create', 'e', '--json')).slot, 'e');
   const slotE = join(FAKE, 'code', 'myapp-slot-e');
@@ -453,7 +468,7 @@ test(
     const rep = json(result);
     assert.equal(rep.ok, true, JSON.stringify(rep.checks));
     const names = rep.checks.map(check => check.name);
-    for (const name of ['tmux', 'git', 'node', 'agent claude', 'repo', 'slots', 'bin links', '  mcp (claude)']) {
+    for (const name of ['tmux', 'git', 'node', 'agent claude', 'repo', 'slots', 'bin links', '  mcp (claude)', 'worktree docs', 'journal']) {
       assert.ok(names.includes(name), `doctor missing check '${name}'`);
     }
   },
