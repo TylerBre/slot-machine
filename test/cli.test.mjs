@@ -442,10 +442,32 @@ test('cli: inspect and floor surface the worker record; doctor reports persisten
   assert.equal(inspected.workerRecord.sessionId, 'sess-9');
   const floorRow = json(sm('floor', '--json')).slots.find(row => row.slot === 'a');
   assert.equal(floorRow.transport, 'pane');
+  const human = sm('floor');
+  assert.match(human.stdout, /slot\s+worker\s+activity\s+via\s+lock\s+task/); // header row
+  assert.match(human.stdout, /^\s+a\s+\S.*pane/m); // slot a shows its transport in the via column
   // a legacy slot (no document) reads null transport - zero behavior change
   rmSync(join(slotA, '.worktree-lock'), { force: true });
   assert.equal(json(sm('floor', '--json')).slots.find(row => row.slot === 'a').transport, null);
   assert.equal(json(sm('slot', 'inspect', 'a', '--json')).workerRecord, null);
+});
+
+test('cli: sm journal reads the repo journal with tail/slot filters', () => {
+  const journalDir = join(FAKE, '.config', 'slot', 'journal');
+  mkdirSync(journalDir, { recursive: true });
+  const lines = [
+    { v: 1, ts: 1000, slot: 'a', type: 'worker-created', agent: 'claude', transport: 'pane' },
+    { v: 1, ts: 2000, slot: 'a', type: 'task-dispatched', task: 'fix sc-1', submitted: true },
+    { v: 1, ts: 3000, slot: 'b', type: 'worker-created', agent: 'claude', transport: 'pane' },
+  ];
+  writeFileSync(join(journalDir, 'myapp.jsonl'), `${lines.map(rec => JSON.stringify(rec)).join('\n')}\n`);
+  const all = json(sm('journal', '--json'));
+  assert.equal(all.length, 3);
+  const slotA = json(sm('journal', '--json', '-s', 'a'));
+  assert.deepEqual(slotA.map(rec => rec.type), ['worker-created', 'task-dispatched']);
+  const tailed = json(sm('journal', '--json', '--tail', '1'));
+  assert.equal(tailed[0].slot, 'b');
+  assert.match(sm('journal').stdout, /task-dispatched\s+fix sc-1/); // human render
+  rmSync(join(journalDir, 'myapp.jsonl'), { force: true }); // leave the fixture journal-free
 });
 
 test('cli: rm refuses a turn in flight; --force breaks it and removes', () => {

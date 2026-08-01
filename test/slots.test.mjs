@@ -216,6 +216,16 @@ test('elevateLock: a legacy lock elevates to the current sectioned schema, adopt
   assert.equal(wrapped.worker, null);
   assert.equal(wrapped.turn, null);
   assert.deepEqual(validateLock(wrapped), []);
+
+  // pre-v1 relics written by old workers carry ISO-string timestamps; the wrap step
+  // normalizes them to epoch ms so age math works (observed live: a July-22 v0 lock)
+  const relic = elevateLock(
+    { session: 'uuid-ish', transcript: '/t/gemini-c/x.jsonl', ts: '2026-07-22T20:26:05Z' },
+    '/x/gemini-c',
+  );
+  assert.equal(relic.ts, Date.parse('2026-07-22T20:26:05Z'));
+  assert.equal(relic.claim.ts, Date.parse('2026-07-22T20:26:05Z'));
+  assert.deepEqual(validateLock(relic), []); // integer ts now conforms
 });
 
 test('validateLock: flags missing-required, wrong-type, and unexpected keys (sectioned shape)', () => {
