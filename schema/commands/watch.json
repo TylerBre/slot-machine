@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/watch.json",
+  "title": "watch",
+  "description": "Dispatcher supervision: gather evidence, classify (absorb/surface), print a digest. --check peeks with no state change; --check --ack additionally journals surfaced/delivered facts and advances the surfaced watermark for emitted events; bare watch blocks until something surfaces. Exit 0 = digest emitted, 3 = nothing to report.",
+  "x-mcp": false,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "check": { "type": "boolean", "description": "one-shot: classify current state, print the digest, exit (0 digest / 3 nothing)" },
+    "ack": { "type": "boolean", "description": "with --check: durably surface - journal facts + advance the surfaced watermark for emitted events" },
+    "hook": { "type": "string", "description": "agent-hook protocol mode (stop | prompt-submit): seat-gated output shaping, wired by the agent delivery capability" },
+    "loop": { "type": "boolean", "description": "blocking mode: keep watching and printing digests until the timeout" },
+    "timeout": { "type": "integer", "description": "blocking mode: max seconds to wait before exiting 3" }
+  },
+  "x-cli": {
+    "path": ["watch"],
+    "args": {
+      "check": { "flag": "--check" },
+      "ack": { "flag": "--ack" },
+      "hook": { "flag": "--hook" },
+      "loop": { "flag": "--loop" },
+      "timeout": { "flag": "--timeout", "short": "t" }
+    }
+  }
+}
