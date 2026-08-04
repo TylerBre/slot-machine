@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { REPO_NAME } from '../lib/constants.mjs';
 import { appendReport, readCursor } from '../lib/inbox.mjs';
 import { readJournal } from '../lib/slots/journal.mjs';
-import { readArmed, runCheck, runWatchBlocking } from '../lib/commands/watch.mjs';
+import { readArmed, runCheck, runHook, runWatchBlocking } from '../lib/commands/watch.mjs';
 
 const quietWorld = () => ({ slots: [], workersA: {}, workersB: null, activity: {}, snapshotOk: true, prs: { ok: true, bySlot: {} } });
 
@@ -204,6 +204,85 @@ test('blocking watch: wakes on a new report and acks it', async () => {
     assert.ok(readCursor(REPO_NAME, 'surfaced') > 0); // the blocking watch acks what it prints
   }
   finally {
+    cleanup(dirs);
+  }
+});
+
+test('hook path: seat-gated (SM_DESK), blocks a stop via exit 2 + stderr, budget degrades-allow, resets on a clean pass', async () => {
+  const dirs = fresh('hook');
+  const realDesk = process.env.SM_DESK;
+  try {
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() })); // baseline
+
+    // no seat marker: silent no-action, and NO ack happened
+    delete process.env.SM_DESK;
+    appendReport(REPO_NAME, { slot: 'a', message: 'blocked: gated?' });
+    const before = readCursor(REPO_NAME, 'surfaced');
+    const gated = await runHook({ type: 'stop', world: quietWorld() });
+    assert.deepEqual(gated, { exitCode: 0, out: '', errText: '' });
+    assert.equal(readCursor(REPO_NAME, 'surfaced'), before); // peeked nothing, acked nothing
+
+    // seated: the same event blocks the stop per the documented protocol (exit 2 + stderr)
+    process.env.SM_DESK = '1';
+    const blocked = await runHook({ type: 'stop', world: quietWorld() });
+    assert.equal(blocked.exitCode, 2);
+    assert.match(blocked.errText, /needs attention before stopping/);
+    assert.match(blocked.errText, /blocked: gated\?/);
+    assert.equal(blocked.out, '');
+    assert.ok(readCursor(REPO_NAME, 'surfaced') > before); // and it acked what it delivered
+
+    // consecutive blocks exhaust the budget -> degraded-allow as context (exit 0 + JSON)
+    for (let index = 0; index < 2; index++) {
+      appendReport(REPO_NAME, { slot: 'a', message: `blocked: again ${index}` });
+      const again = await runHook({ type: 'stop', world: quietWorld() });
+      assert.equal(again.exitCode, 2);
+    }
+    appendReport(REPO_NAME, { slot: 'a', message: 'blocked: one too many' });
+    const allowed = await runHook({ type: 'stop', world: quietWorld() });
+    assert.equal(allowed.exitCode, 0);
+    const parsed = JSON.parse(allowed.out);
+    assert.equal(parsed.hookSpecificOutput.hookEventName, 'Stop');
+    assert.match(parsed.hookSpecificOutput.additionalContext, /block budget exhausted/);
+    assert.match(parsed.hookSpecificOutput.additionalContext, /one too many/);
+
+    // a clean (quiet) pass resets the budget: the next event blocks again
+    const quiet = await runHook({ type: 'stop', world: quietWorld() });
+    assert.equal(quiet.exitCode, 0);
+    appendReport(REPO_NAME, { slot: 'a', message: 'blocked: fresh after reset' });
+    const blocksAgain = await runHook({ type: 'stop', world: quietWorld() });
+    assert.equal(blocksAgain.exitCode, 2);
+  }
+  finally {
+    if (realDesk === undefined)
+      delete process.env.SM_DESK;
+    else process.env.SM_DESK = realDesk;
+    cleanup(dirs);
+  }
+});
+
+test('hook path: prompt-submit delivers as additionalContext, never blocks, ignores the budget', async () => {
+  const dirs = fresh('hookps');
+  const realDesk = process.env.SM_DESK;
+  try {
+    process.env.SM_DESK = '1';
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() })); // baseline
+    appendReport(REPO_NAME, { slot: 'b', message: 'needs-decision: A or B?' });
+    const delivered = await runHook({ type: 'prompt-submit', world: quietWorld() });
+    assert.equal(delivered.exitCode, 0);
+    assert.equal(delivered.errText, '');
+    const parsed = JSON.parse(delivered.out);
+    assert.equal(parsed.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+    assert.match(parsed.hookSpecificOutput.additionalContext, /needs-decision: A or B\?/);
+    // quiet fleet: silent no-action
+    const quiet = await runHook({ type: 'prompt-submit', world: quietWorld() });
+    assert.deepEqual(quiet, { exitCode: 0, out: '', errText: '' });
+  }
+  finally {
+    if (realDesk === undefined)
+      delete process.env.SM_DESK;
+    else process.env.SM_DESK = realDesk;
     cleanup(dirs);
   }
 });

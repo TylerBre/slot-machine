@@ -1,6 +1,7 @@
 // test/agents-claude.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,4 +44,41 @@ test('canResume / lastMessage / transcriptAge read the env-derived transcript di
   assert.equal(claude.canResume({ dir, env: { CLAUDE_CONFIG_DIR: base } }).value, true);
   assert.equal(claude.lastMessage({ dir, env: { CLAUDE_CONFIG_DIR: base } }).value, 'hello');
   assert.equal(typeof claude.transcriptAge({ dir, env: { CLAUDE_CONFIG_DIR: base } }).value, 'number');
+});
+
+test('deliverySetup: installs both watch hooks idempotently, preserving unrelated settings', () => {
+  const desk = mkdtempSync(join(tmpdir(), 'sm-desk-'));
+  const settingsFile = join(desk, '.claude', 'settings.json');
+  // pre-existing user settings: an unrelated hook + a non-hook key must survive untouched
+  const pre = {
+    permissions: { allow: ['Bash(ls:*)'] },
+    hooks: { PostToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'my-linter' }] }] },
+  };
+  fs.mkdirSync(join(desk, '.claude'), { recursive: true });
+  writeFileSync(settingsFile, JSON.stringify(pre));
+
+  const first = claude.deliverySetup({ deskDir: desk });
+  assert.equal(first.ok, true);
+  assert.deepEqual(first.value.installed.sort(), ['Stop', 'UserPromptSubmit']);
+  const written = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  assert.deepEqual(written.permissions, pre.permissions); // unrelated keys intact
+  assert.equal(written.hooks.PostToolUse[0].hooks[0].command, 'my-linter'); // unrelated hook intact
+  assert.match(written.hooks.Stop[0].hooks[0].command, /sm watch --check --ack --hook stop/);
+  assert.match(written.hooks.UserPromptSubmit[0].hooks[0].command, /--hook prompt-submit/);
+
+  // idempotent: second run installs nothing, changes nothing
+  const second = claude.deliverySetup({ deskDir: desk });
+  assert.equal(second.value.changed, false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), written);
+});
+
+test('deliverySetup: refuses to rewrite a settings file it cannot parse; needs deskDir', () => {
+  const desk = mkdtempSync(join(tmpdir(), 'sm-desk-bad-'));
+  fs.mkdirSync(join(desk, '.claude'), { recursive: true });
+  writeFileSync(join(desk, '.claude', 'settings.json'), '{ not json');
+  const refused = claude.deliverySetup({ deskDir: desk });
+  assert.equal(refused.ok, false);
+  assert.match(refused.detail, /refusing to rewrite/);
+  assert.equal(fs.readFileSync(join(desk, '.claude', 'settings.json'), 'utf8'), '{ not json'); // untouched
+  assert.equal(claude.deliverySetup({}).ok, false);
 });
