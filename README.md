@@ -83,12 +83,13 @@ The rigid definitions (`sm help vocab`):
 | **worker**     | the coding-agent process in a slot's pane (Claude by default, or any configured agent)             |
 | **desk**       | the session's first window; the seat the dispatcher runs the session from                          |
 | **dispatcher** | the role at the desk: finds capacity, hands off, checks in, reclaims - never edits a slot          |
-| **session**    | the tmux session laying out the desk + slot panes for one repo                                     |
+| **session**    | the multiplexer session laying out the desk + slot panes for one repo                              |
 | **lock**       | a claim on a slot (`.worktree-lock`) or a shared machine resource (e.g. the authenticated browser) |
 
 ## Install
 
-Node >= 22 and tmux required; `gh` (authenticated) powers PR-state classification.
+Node >= 22 and a terminal multiplexer required - tmux by default, or zellij >= 0.44 (see
+[Multiplexers](#multiplexers)); `gh` (authenticated) powers PR-state classification.
 
 ```sh
 git clone <this repo> && cd slot-machine
@@ -265,6 +266,27 @@ that agent by `sm doctor --fix`. Built-in agents are held to full contract confo
 plugin that fails to load is skipped and reported by `sm agents ls`; one that loads but
 misbehaves at runtime degrades (its slot is left at a shell) rather than crashing the tool.
 
+## Multiplexers
+
+The session/pane layer sits behind the same plugin-contract pattern as agents. **tmux is the
+built-in default**, and an untouched setup behaves exactly as before. Zellij (>= 0.44) ships
+as a second backend - select it globally in `~/.config/slot/config.json`:
+
+```jsonc
+{ "settings": { "mux": "zellij" } }
+```
+
+Every backend implements one contract (sessions > windows > panes, addressed by returned
+handles; structured pane records; type/submit/capture primitives), conformance-tested for
+both built-ins. Worker panes are stamped with their slot label at spawn, so slot correlation
+survives a worker `cd`-ing away from its worktree on either backend.
+
+**Zellij is experimental**, with two known v1 limits: `sm worker kill` cannot resolve the
+pane's process (zellij exposes no pane pid - end the worker from inside its pane), and
+worker live/dead detection for shell panes uses a prompt heuristic (zellij does not report a
+pane's foreground command). Requires zellij >= 0.44.0; older versions are refused with a
+clear error.
+
 ## MCP
 
 `slot-machine-mcp` is a zero-dependency stdio MCP server that wraps the CLI - each tool shells out
@@ -291,15 +313,21 @@ npm run pack      # slot-machine-vX.Y.Z.tar.gz of HEAD (tracked files only)
 
 `lib/` is organized by responsibility, no barrel files - import from the specific module:
 
-- `slots/` - `pure.mjs` (classification/parsing, unit-tested), `locks.mjs` (the one lockfile's
-  schemas + lifecycle, incl. embedded resource locks), `gather.mjs` (tmux/git/gh state).
+- `slots/` - `pure.mjs` (classification/parsing, unit-tested), `locks.mjs` (the worktree
+  document: claim/worker/turn sections, serialized atomic writes, embedded resource locks),
+  `journal.mjs` (the append-only per-repo turn journal), `gather.mjs` (multiplexer/git/gh state).
+- `mux/` - the multiplexer plugin system: `contract.mjs` (the op catalog), `tmux.mjs` and
+  `zellij.mjs` (backends; every backend format string lives in its backend), `index.mjs`
+  (registry + the send-reliability helpers built on backend primitives).
+- `plugin/contract.mjs` - the ok/err envelope and guarded call path shared by the agent and
+  multiplexer plugin systems.
 - `commands/` - one file per namespace (`repo`/`session`/`slot`/`worker`/`msg`/`lock`/`top`) plus
   `shared.mjs` (cross-command helpers).
 - `schema.mjs` + `elevators.mjs` - the zero-dep JSON-Schema validator, loader, and version-migration
   runner; the schemas themselves live in `schema/` (lockfile, config, inbox, usage, one per command).
 - `argspec.mjs` - the single arg-spec adapter so the CLI parser and the MCP tools cannot drift.
-- `exec.mjs` (tmux/git/gh plumbing), `format.mjs` (output), `context.mjs` (repo resolution + config),
-  `constants.mjs` (config/data), `help.mjs` (usage/vocabulary text), `router.mjs` (dispatch table).
+- `exec.mjs` (git/gh/OS-process plumbing), `format.mjs` (output), `context.mjs` (repo resolution +
+  config), `constants.mjs` (config/data), `help.mjs` (usage/vocabulary text), `router.mjs` (dispatch table).
 
 `bin/sm` and `bin/slot-machine` are thin entry points over the router; `bin/slot-machine-mcp` is the
 MCP server, whose tools are derived at runtime from `schema/commands/*.json`. See

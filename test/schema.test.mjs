@@ -53,8 +53,8 @@ test('validate: a top-level array is not a valid object', () => {
 
 test('loadSchema: loads a schema and resolves $ref to a sibling file', () => {
   const worktree = loadSchema('worktree-lock.schema.json');
-  assert.equal(worktree.properties.v.const, 1);
-  // resources[].items is a $ref to resource-lock.schema.json, resolved inline
-  assert.equal(worktree.properties.resources.items.title, 'resource-lock');
-  assert.equal(worktree.properties.resources.items.properties.resource.type, 'string');
+  assert.equal(worktree.properties.v.const, 2);
+  // claim.resources[].items is a $ref to resource-lock.schema.json, resolved inline
+  assert.equal(worktree.properties.claim.properties.resources.items.title, 'resource-lock');
+  assert.equal(worktree.properties.claim.properties.resources.items.properties.resource.type, 'string');
 });

@@ -2,13 +2,19 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/commands/floor.json",
   "title": "floor",
-  "description": "One-shot fleet snapshot for the dispatcher: running sessions, every slot's worker/activity/task/lock, held resource locks, and the unread inbox count - one call instead of four. Cheap (multiplexer + lockfiles only, no git/gh); use sm_slot_ls when you need reusability classification.",
+  "description": "One-shot fleet snapshot for the dispatcher: running sessions, every slot's worker/activity/transport/task/lock, held resource locks, and the unread inbox count - one call instead of four. Cheap (multiplexer + lockfiles only, no git/gh); use sm_slot_ls when you need reusability classification.",
   "x-mcp": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "watch": { "type": "boolean", "description": "redraw the snapshot on an interval until Ctrl-C (alias: --follow)" },
+    "follow": { "type": "boolean", "description": "alias for --watch (one word works across ls/ps/logs/floor)" }
+  },
   "x-cli": {
     "path": ["floor"],
-    "args": {}
+    "args": {
+      "watch": { "flag": "--watch", "mcpHidden": true },
+      "follow": { "flag": "--follow", "mcpHidden": true }
+    }
   }
 }

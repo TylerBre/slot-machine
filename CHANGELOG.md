@@ -4,6 +4,68 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Multiplexer plugins: slot machine is no longer hardwired to tmux. The session/pane layer
+sits behind the same plugin-contract pattern the agent system uses; tmux stays the built-in
+default and an untouched config behaves exactly as before. Zellij (>= 0.44) ships as the
+second backend.
+
+### Added
+
+- **Multiplexer plugin system.** A backend contract over a session > group > pane model -
+  create/list/kill sessions, spawn groups and panes (creation ops return the handles callers
+  address by), structured pane records, literal-type/submit/capture IO primitives, focus and
+  attach - dispatched through the same guarded call path as agent plugins. The send
+  reliability loop (settle, verify the composer cleared, retry) lives once in core, on top of
+  the primitives.
+- **Zellij backend (experimental), `settings.mux: zellij`.** Built on zellij 0.44's CLI
+  automation surface and version-gated against older zellij. Pane labels are zellij pane
+  names (rendered natively on the frame - no config block needed). Known v1 limits: `sm
+  worker kill` cannot resolve a pane pid (end the worker from inside its pane), and worker
+  liveness for shell panes uses a prompt-scan heuristic because zellij does not report a
+  pane's foreground command.
+- **Pane labels.** Worker panes are stamped with their slot label at spawn (tmux: the
+  sm-owned `@smslot` pane option; zellij: the pane name), and slot correlation is
+  label-first - it now survives a worker `cd`-ing away from its worktree. Panes from
+  sessions built before labels existed still correlate by directory.
+
+- **The worker is persisted: `.worktree-lock` becomes the worktree document.** The flat lock
+  grows into nullable sections - `claim` (the lock, embedded resources included), `worker`
+  (the conversation bound to the slot: agent instance, transport, session id), and `turn`
+  (an in-flight session turn) - versioned, schema-validated, elevated on read like every sm
+  document. `readLock` keeps its exact historical contract, so claim consumers are untouched;
+  legacy flat locks elevate transparently and absent sections mean "legacy slot".
+- **Serialized, atomic document writes.** Every mutation flows through one protocol: an
+  exclusive-create `.worktree-lock.tmp` that is simultaneously the write mutex and the
+  atomic-write vehicle (write, fsync, rename). Stale mutexes are broken by rename with
+  pid-identity staleness; owned-field merges mean a re-spawn never nulls a session id it
+  did not mint.
+- **The turn section: one session turn per worker, structurally.** Serialized read-check-write
+  claim, verify-before-clear release, pid-identity liveness that fails toward alive. `slot
+  reset` and `slot rm` refuse while a turn is pid-live (`--force` breaks it through the
+  protocol). Ships ahead of its first consumer (the headless transport).
+- **The turn journal.** `~/.config/slot/journal/<repo>.jsonl`: append-only, fsync'd facts
+  about the fleet (worker-created, task-dispatched, turn-*, worker-replaced) - history the
+  future watcher reads; the inbox stays the mailbox. Rotation by rename only, failing closed.
+  Journal failure on the dispatch hot path degrades to a warning - history never blocks
+  delivery.
+- **`slot reset --hard-worker`** - also clear the worker record (fresh conversation on the
+  next dispatch), journaling `worker-replaced` before the mutation. A plain reset now keeps
+  the conversation: `git clean` excludes sm's artifacts (which also fixes a latent bug where
+  a dirty force-reset silently deleted the lock itself).
+- **Surfaces:** `slot inspect` shows the worker record, `sm floor` gains per-slot transport,
+  `sm doctor` checks document health, abandoned write mutexes, and journal size.
+
+### Changed
+
+- **The whole core is multiplexer-agnostic.** Session build/reload/attach/kill, message
+  delivery, worker status/logs/kill, and slot focus all speak the backend contract;
+  `exec.mjs` is git/gh/OS-process plumbing only. Session windows are addressed by returned
+  handles - the tmux `base-index` arithmetic is gone.
+- `sm doctor` reports the active multiplexer backend by name, and skips backend-specific
+  checks (pane-title config) on backends that do not need them.
+
 ## [1.3.0] - 2026-07-29
 
 Dispatcher quick wins, ported from a design comparison against firstmate

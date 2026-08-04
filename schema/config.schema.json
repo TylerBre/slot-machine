@@ -14,7 +14,8 @@
       "additionalProperties": false,
       "description": "global settings",
       "properties": {
-        "agentsDir": { "type": "string", "description": "root for relative user-plugin paths; default ~/.config/slot/agents" }
+        "agentsDir": { "type": "string", "description": "root for relative user-plugin paths; default ~/.config/slot/agents" },
+        "mux": { "type": "string", "enum": ["tmux", "zellij"], "description": "active multiplexer backend; default tmux" }
       }
     },
     "agents": {
