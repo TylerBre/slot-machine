@@ -313,8 +313,9 @@ npm run pack      # slot-machine-vX.Y.Z.tar.gz of HEAD (tracked files only)
 
 `lib/` is organized by responsibility, no barrel files - import from the specific module:
 
-- `slots/` - `pure.mjs` (classification/parsing, unit-tested), `locks.mjs` (the one lockfile's
-  schemas + lifecycle, incl. embedded resource locks), `gather.mjs` (multiplexer/git/gh state).
+- `slots/` - `pure.mjs` (classification/parsing, unit-tested), `locks.mjs` (the worktree
+  document: claim/worker/turn sections, serialized atomic writes, embedded resource locks),
+  `journal.mjs` (the append-only per-repo turn journal), `gather.mjs` (multiplexer/git/gh state).
 - `mux/` - the multiplexer plugin system: `contract.mjs` (the op catalog), `tmux.mjs` and
   `zellij.mjs` (backends; every backend format string lives in its backend), `index.mjs`
   (registry + the send-reliability helpers built on backend primitives).

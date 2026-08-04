@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/commands/journal.json",
+  "title": "journal",
+  "description": "Read the repo's turn journal: append-only facts about the fleet (worker-created, task-dispatched, turn-started/completed, worker-replaced), newest last. History - the inbox stays the mailbox for messages that need reading; the journal is what happened, for supervision and debugging.",
+  "x-mcp": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tail": { "type": "integer", "description": "only the last N records (default 20; 0 = all)" },
+    "slot": { "type": "string", "description": "only records about this slot label" }
+  },
+  "x-cli": {
+    "path": ["journal"],
+    "args": {
+      "tail": { "flag": "--tail", "short": "n" },
+      "slot": { "flag": "--slot", "short": "s" }
+    }
+  }
+}

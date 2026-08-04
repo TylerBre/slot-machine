@@ -30,6 +30,33 @@ second backend.
   label-first - it now survives a worker `cd`-ing away from its worktree. Panes from
   sessions built before labels existed still correlate by directory.
 
+- **The worker is persisted: `.worktree-lock` becomes the worktree document.** The flat lock
+  grows into nullable sections - `claim` (the lock, embedded resources included), `worker`
+  (the conversation bound to the slot: agent instance, transport, session id), and `turn`
+  (an in-flight session turn) - versioned, schema-validated, elevated on read like every sm
+  document. `readLock` keeps its exact historical contract, so claim consumers are untouched;
+  legacy flat locks elevate transparently and absent sections mean "legacy slot".
+- **Serialized, atomic document writes.** Every mutation flows through one protocol: an
+  exclusive-create `.worktree-lock.tmp` that is simultaneously the write mutex and the
+  atomic-write vehicle (write, fsync, rename). Stale mutexes are broken by rename with
+  pid-identity staleness; owned-field merges mean a re-spawn never nulls a session id it
+  did not mint.
+- **The turn section: one session turn per worker, structurally.** Serialized read-check-write
+  claim, verify-before-clear release, pid-identity liveness that fails toward alive. `slot
+  reset` and `slot rm` refuse while a turn is pid-live (`--force` breaks it through the
+  protocol). Ships ahead of its first consumer (the headless transport).
+- **The turn journal.** `~/.config/slot/journal/<repo>.jsonl`: append-only, fsync'd facts
+  about the fleet (worker-created, task-dispatched, turn-*, worker-replaced) - history the
+  future watcher reads; the inbox stays the mailbox. Rotation by rename only, failing closed.
+  Journal failure on the dispatch hot path degrades to a warning - history never blocks
+  delivery.
+- **`slot reset --hard-worker`** - also clear the worker record (fresh conversation on the
+  next dispatch), journaling `worker-replaced` before the mutation. A plain reset now keeps
+  the conversation: `git clean` excludes sm's artifacts (which also fixes a latent bug where
+  a dirty force-reset silently deleted the lock itself).
+- **Surfaces:** `slot inspect` shows the worker record, `sm floor` gains per-slot transport,
+  `sm doctor` checks document health, abandoned write mutexes, and journal size.
+
 ### Changed
 
 - **The whole core is multiplexer-agnostic.** Session build/reload/attach/kill, message

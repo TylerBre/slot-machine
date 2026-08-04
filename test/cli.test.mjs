@@ -343,6 +343,145 @@ test('cli: slot rm removes the worktree', () => {
   assert.match(sm('slot', 'rm', 'b').stderr, /no worktree/);
 });
 
+// --- worktree-document lifecycle through the destructive verbs (persistence layer) --------------
+
+// Seed a sectioned document directly (the CLI writes worker sections at dispatch, which the
+// hermetic fixture cannot reach without panes).
+function seedDoc(dir, { claim = null, worker = null, turn = null } = {}) {
+  writeFileSync(
+    join(dir, '.worktree-lock'),
+    `${JSON.stringify({ v: 2, cwd: dir, ts: Date.now(), claim, worker, turn })}\n`,
+  );
+}
+const seedWorker = sessionId => ({ agent: 'claude', model: null, transport: 'pane', sessionId, createdAt: 1 });
+function selfTurn(task) {
+  const lstart = spawnSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8' });
+  return { pid: process.pid, pidStart: lstart.stdout.trim(), startedAt: Date.now(), task };
+}
+const readDocRaw = dir => JSON.parse(readFileSync(join(dir, '.worktree-lock'), 'utf8'));
+
+test('cli: a dirty force-reset keeps the document - claim cleared, worker intact, dirt gone', () => {
+  assert.equal(json(sm('slot', 'create', 'd', '--json')).slot, 'd');
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  seedDoc(slotD, { claim: { session: 's', task: 'old work', issue: null, ts: 1 }, worker: seedWorker('sess-keep') });
+  writeFileSync(join(slotD, 'junk.tmp'), 'stray build artifact'); // real dirt -> the clean -fd path runs
+  const forced = sm('slot', 'reset', 'd', '--force', '--json');
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.equal(existsSync(join(slotD, 'junk.tmp')), false); // user dirt cleaned
+  assert.equal(existsSync(join(slotD, '.worktree-lock')), true); // the document SURVIVED git clean
+  const doc = readDocRaw(slotD);
+  assert.equal(doc.claim, null); // claim released by the reset
+  assert.equal(doc.worker.sessionId, 'sess-keep'); // the conversation survives a reset
+});
+
+test('cli: reset refuses a turn in flight; --force breaks it via the protocol', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  seedDoc(slotD, { worker: seedWorker('sess-keep'), turn: selfTurn('mid-flight') }); // live holder: this test process
+  const refused = sm('slot', 'reset', 'd');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /turn in flight.*--force/);
+  const forced = sm('slot', 'reset', 'd', '--force', '--json');
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.equal(readDocRaw(slotD).turn, null); // broken through the serialized write, not blind unlink
+});
+
+test('cli: reset --hard-worker journals worker-replaced BEFORE clearing the conversation', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  const journalDir = join(FAKE, 'journal');
+  seedDoc(slotD, { worker: seedWorker('sess-gone') });
+  const result = runBin(SM, ['slot', 'reset', 'd', '--hard-worker', '--json'], {
+    env: { ...env, SLOT_JOURNAL_DIR: journalDir },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(join(slotD, '.worktree-lock')), false); // all-null document unlinks
+  const lines = readFileSync(join(journalDir, 'myapp.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const replaced = lines.find(rec => rec.type === 'worker-replaced');
+  assert.equal(replaced.slot, 'd');
+  assert.equal(replaced.prevSessionId, 'sess-gone');
+});
+
+test('cli: reset --hard-worker record lands even when the clear fails (record-before-mutation)', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  const journalDir = join(FAKE, 'journal-inject');
+  seedDoc(slotD, { worker: seedWorker('sess-stuck') });
+  // hold the document write mutex with THIS live process: the worker-clear mutation must fail
+  const lstart = spawnSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8' });
+  writeFileSync(join(slotD, '.worktree-lock.tmp'), JSON.stringify({ pid: process.pid, pidStart: lstart.stdout.trim(), ts: Date.now() }));
+  try {
+    const result = runBin(SM, ['slot', 'reset', 'd', '--hard-worker'], {
+      env: { ...env, SLOT_JOURNAL_DIR: journalDir, SLOT_DOC_MUTEX_MS: '200' },
+    });
+    assert.equal(result.status, 1); // the blocked mutation fails the reset loudly
+    const lines = readFileSync(join(journalDir, 'myapp.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(lines.some(rec => rec.type === 'worker-replaced')); // the record preceded the mutation...
+    assert.equal(readDocRaw(slotD).worker.sessionId, 'sess-stuck'); // ...which never happened
+  }
+  finally {
+    rmSync(join(slotD, '.worktree-lock.tmp'), { force: true });
+  }
+});
+
+test('cli: slot ls reads a worktree holding only sm artifacts as clean, and rm needs no --force', () => {
+  const slotD = join(FAKE, 'code', 'myapp-slot-d');
+  seedDoc(slotD, { worker: seedWorker(null) });
+  writeFileSync(join(slotD, '.worktree-lock.tmp.broken.999'), 'husk'); // a broken mutex husk is sm's dirt too
+  const row = json(sm('slot', 'ls', '--json')).find(entry => entry.slot === 'd');
+  assert.equal(row.status, 'free'); // sm artifacts are never user dirt
+  // rm: the document blocks `git worktree remove` unless sm removes it first
+  const removed = json(sm('slot', 'rm', 'd', '--json'));
+  assert.equal(removed.removed, true);
+  assert.equal(existsSync(slotD), false);
+});
+
+test('cli: inspect and floor surface the worker record; doctor reports persistence health', () => {
+  const slotA = join(FAKE, 'code', 'myapp-slot-a');
+  seedDoc(slotA, { worker: { agent: 'claude', model: 'opus', transport: 'pane', sessionId: 'sess-9', createdAt: 5 } });
+  const inspected = json(sm('slot', 'inspect', 'a', '--json'));
+  assert.equal(inspected.workerRecord.agent, 'claude');
+  assert.equal(inspected.workerRecord.transport, 'pane');
+  assert.equal(inspected.workerRecord.sessionId, 'sess-9');
+  const floorRow = json(sm('floor', '--json')).slots.find(row => row.slot === 'a');
+  assert.equal(floorRow.transport, 'pane');
+  const human = sm('floor');
+  assert.match(human.stdout, /slot\s+worker\s+activity\s+via\s+lock\s+task/); // header row
+  assert.match(human.stdout, /^\s+a\s+\S.*pane/m); // slot a shows its transport in the via column
+  // a legacy slot (no document) reads null transport - zero behavior change
+  rmSync(join(slotA, '.worktree-lock'), { force: true });
+  assert.equal(json(sm('floor', '--json')).slots.find(row => row.slot === 'a').transport, null);
+  assert.equal(json(sm('slot', 'inspect', 'a', '--json')).workerRecord, null);
+});
+
+test('cli: sm journal reads the repo journal with tail/slot filters', () => {
+  const journalDir = join(FAKE, '.config', 'slot', 'journal');
+  mkdirSync(journalDir, { recursive: true });
+  const lines = [
+    { v: 1, ts: 1000, slot: 'a', type: 'worker-created', agent: 'claude', transport: 'pane' },
+    { v: 1, ts: 2000, slot: 'a', type: 'task-dispatched', task: 'fix sc-1', submitted: true },
+    { v: 1, ts: 3000, slot: 'b', type: 'worker-created', agent: 'claude', transport: 'pane' },
+  ];
+  writeFileSync(join(journalDir, 'myapp.jsonl'), `${lines.map(rec => JSON.stringify(rec)).join('\n')}\n`);
+  const all = json(sm('journal', '--json'));
+  assert.equal(all.length, 3);
+  const slotA = json(sm('journal', '--json', '-s', 'a'));
+  assert.deepEqual(slotA.map(rec => rec.type), ['worker-created', 'task-dispatched']);
+  const tailed = json(sm('journal', '--json', '--tail', '1'));
+  assert.equal(tailed[0].slot, 'b');
+  assert.match(sm('journal').stdout, /task-dispatched\s+fix sc-1/); // human render
+  rmSync(join(journalDir, 'myapp.jsonl'), { force: true }); // leave the fixture journal-free
+});
+
+test('cli: rm refuses a turn in flight; --force breaks it and removes', () => {
+  assert.equal(json(sm('slot', 'create', 'e', '--json')).slot, 'e');
+  const slotE = join(FAKE, 'code', 'myapp-slot-e');
+  seedDoc(slotE, { turn: selfTurn('rm-guard') });
+  const refused = sm('slot', 'rm', 'e');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /turn in flight.*--force/);
+  const forced = json(sm('slot', 'rm', 'e', '--force', '--json'));
+  assert.equal(forced.removed, true);
+  assert.equal(existsSync(slotE), false);
+});
+
 test(
   'cli: doctor reports repo health and exits 0 on a sane setup',
   { skip: spawnSync('tmux', ['-V']).status !== 0 ? 'doctor ok requires tmux installed' : false },
@@ -351,7 +490,7 @@ test(
     const rep = json(result);
     assert.equal(rep.ok, true, JSON.stringify(rep.checks));
     const names = rep.checks.map(check => check.name);
-    for (const name of ['tmux', 'git', 'node', 'agent claude', 'repo', 'slots', 'bin links', '  mcp (claude)']) {
+    for (const name of ['tmux', 'git', 'node', 'agent claude', 'repo', 'slots', 'bin links', '  mcp (claude)', 'worktree docs', 'journal']) {
       assert.ok(names.includes(name), `doctor missing check '${name}'`);
     }
   },
