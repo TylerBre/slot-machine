@@ -47,6 +47,7 @@ import { resolveActive } from '../lib/context.mjs';
 import { formatSessions } from '../lib/format.mjs';
 import { appendReport, clearInbox, consumeReports, readInbox, waitForReports } from '../lib/inbox.mjs';
 import { readUsage, recordUsage, summarizeUsage } from '../lib/usage.mjs';
+import { workersFromPanes } from '../lib/slots/gather.mjs';
 
 const LABELS = ['a', 'b', 'c', 'd', 'e', 'f']; // 6 slots for parser tests
 const set = (...xs) => new Set(xs);
@@ -967,4 +968,15 @@ test('reloadPaneWidth: preserves the densest existing packing, defaults to 3 whe
   assert.equal(reloadPaneWidth([3, 3]), 3);
   assert.equal(reloadPaneWidth([4, 4, 4]), 4);
   assert.equal(reloadPaneWidth([]), 3); // no slot windows yet -> the create default
+});
+
+test('workersFromPanes: live/dead per label; slotWorkerSample shape carries the envelope ok', () => {
+  const panes = [
+    { label: 'a', exited: false, command: '2.1.201' }, // agent running
+    { label: 'b', exited: false, command: 'zsh' }, // fell back to a shell
+    { label: 'a', exited: false, command: 'zsh' }, // second pane for a: live wins
+    { exited: false, command: 'node', cwd: '/nowhere' }, // unlabeled, foreign cwd: ignored
+  ];
+  const workers = workersFromPanes(panes);
+  assert.deepEqual(workers, { a: 'live', b: 'dead' });
 });

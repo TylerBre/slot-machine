@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendJournal, journalSize, readJournal, rotateJournalIfNeeded } from '../lib/slots/journal.mjs';
+import { appendJournal, JOURNAL_SCHEMA_VERSION, journalSize, readJournal, rotateJournalIfNeeded } from '../lib/slots/journal.mjs';
 import { readWorker } from '../lib/slots/locks.mjs';
+import { REPO_NAME } from '../lib/constants.mjs';
 import { journalDispatch, recordWorker } from '../lib/commands/shared.mjs';
 
 function freshJournalDir(tag) {
@@ -31,7 +32,7 @@ test('journal: append/read round-trip validates, stamps v/ts, preserves order', 
     assert.equal(got.length, 2);
     assert.equal(got[0].type, 'worker-created');
     assert.equal(got[1].type, 'task-dispatched');
-    assert.equal(got[0].v, 1);
+    assert.equal(got[0].v, JOURNAL_SCHEMA_VERSION); // stamps the current write-side version
     assert.equal(typeof got[0].ts, 'number');
     // note: fsync durability itself is not black-box unit-testable (page-cache coherence makes
     // fresh-fd reads pass regardless); the fsync call is pinned by code review to spec invariant 5.
@@ -146,6 +147,67 @@ test('recordWorker/journalDispatch: journal failure degrades to a warning, never
     recordWorker(slotDir, 'a', { agent: 'claude', transport: 'pane' }); // must not throw
     assert.equal(readWorker(slotDir).agent, 'claude'); // the document write still happened
     journalDispatch('a', 'a task'); // must not throw either
+  }
+  finally {
+    cleanup(dir);
+  }
+});
+
+test('journal v2: supervision facts validate on write, incl. fleet-scoped slot-less records', () => {
+  const dir = freshJournalDir('v2');
+  try {
+    appendJournal('t', { slot: 'a', type: 'pr-merged', pr: 42 });
+    appendJournal('t', { slot: 'a', type: 'surfaced', reason: 'crash', claimTs: 123456 });
+    appendJournal('t', { type: 'delivered', slots: ['a', 'b'], count: 3 }); // no slot: fleet-scoped
+    appendJournal('t', { type: 'watch-degraded', reason: 'gh polling failed 3 consecutive times' });
+    const got = readJournal('t');
+    assert.deepEqual(got.map(rec => rec.type), ['pr-merged', 'surfaced', 'delivered', 'watch-degraded']);
+    assert.ok(got.every(rec => rec.v === 2));
+    assert.equal(got[1].claimTs, 123456);
+    // still refuses off-vocabulary types and wrong shapes
+    assert.throws(() => appendJournal('t', { slot: 'a', type: 'made-up' }), /invalid/);
+    assert.throws(() => appendJournal('t', { slot: 'a', type: 'pr-merged', pr: 'not-a-number' }), /invalid/);
+  }
+  finally {
+    cleanup(dir);
+  }
+});
+
+test('journal v2: v1 records already on disk still read (write-side-only validation)', () => {
+  const dir = freshJournalDir('v1read');
+  try {
+    const v1 = { v: 1, ts: 1000, slot: 'a', type: 'task-dispatched', task: 'old fact', submitted: true };
+    writeFileSync(join(dir, 't.jsonl'), `${JSON.stringify(v1)}\n`);
+    appendJournal('t', { slot: 'a', type: 'pr-merged', pr: 7 });
+    const got = readJournal('t');
+    assert.equal(got.length, 2);
+    assert.deepEqual(got.map(rec => rec.v), [1, 2]); // both generations coexist
+  }
+  finally {
+    cleanup(dir);
+  }
+});
+
+test('cmdJournal: renders fleet-scoped (slot-less) v2 records without throwing', async () => {
+  const dir = freshJournalDir('render');
+  const realLog = console.log;
+  try {
+    appendJournal(REPO_NAME, { type: 'delivered', slots: ['a'], count: 1 });
+    appendJournal(REPO_NAME, { type: 'watch-degraded', reason: 'gh flaked' });
+    appendJournal(REPO_NAME, { slot: 'a', type: 'pr-merged', pr: 9 });
+    const { cmdJournal } = await import('../lib/commands/top.mjs');
+    const out = [];
+    console.log = line => out.push(line);
+    try {
+      cmdJournal([]); // human render: rec.slot is undefined on two of these - must not throw
+    }
+    finally {
+      console.log = realLog;
+    }
+    assert.equal(out.length, 3);
+    assert.match(out[0], /delivered/);
+    assert.match(out[1], /gh flaked/);
+    assert.match(out[2], /PR #9/);
   }
   finally {
     cleanup(dir);
