@@ -147,6 +147,9 @@ Commands are namespaced by the noun they act on, with docker-style generic verbs
 ```
 sm doctor                                check environment + repo health
 sm stats [--days N]                      command usage: counts, error rates, timings
+sm floor [--watch]                       one-shot fleet snapshot: sessions, slots, locks, inbox, watch
+sm journal [--tail N] [-s SLOT]          the repo's turn journal: what happened, when, to which worker
+sm watch --check [--ack] | [--loop]      supervision digest: peek, surface durably, or block for events
 sm help [ns] [cmd] | vocab               overview, namespace, command detail, or vocabulary
 
 sm repo ls                               known repos (current marked with *)
@@ -183,6 +186,7 @@ sm worker preflight                      assert cwd is your slot worktree (worke
 
 sm msg send MESSAGE [-s SPEC|-f]         type a line into slot panes (all, a subset, or -f first-free)
 sm msg report "MSG" | sm msg inbox       worker -> dispatcher back-channel (report to send, inbox to read)
+sm msg inbox --unread                    only reports since your last read; advances the read cursor
 
 sm lock ls                               list held resource locks (holder, age, task)
 sm lock claim NAME [task] | release NAME lock a slot OR shared resource (e.g. browser) / free it
@@ -209,6 +213,52 @@ the lock file):
 | `locked`        | busy - a live session holds the worktree                                    |
 | `stale`         | busy - locked, but the owner session is dead (reclaim with `sm lock prune`) |
 | `active`        | busy - a live worker is mid-task (no branch/lock yet)                       |
+
+## Supervision
+
+Workers report; the dispatcher must actually read it. Supervision closes that loop with
+deterministic machinery instead of a recurring AI duty.
+
+**Report verbs.** A report leads with a verb so the watch can triage it:
+
+```
+sm msg report "done: PR #123, 96%"          # also: blocked: / needs-decision: / failed:
+sm msg report "working: tests green"        # progress note - absorbed, aged by its window
+sm msg report "paused: waiting on UAT env"  # declared wait - re-surfaces hourly
+```
+
+Verbs are parsed on read, never stored; a report with no verb always surfaces (unknown
+demands attention). `msg report` prints a tip when the message has no verb.
+
+**The core is one pure decision.** `sm watch --check` gathers evidence (inbox, claims,
+worker liveness sampled twice, PR state) and classifies every event as *absorb* (positive
+evidence of work) or *surface* (needs the dispatcher): attention-verb and verb-less
+reports, stale `paused:` (> 60m), stalled `working:` (> 30m with no live activity),
+crashed workers (claim held, worker gone in both samples), merged PRs on claimed slots.
+Surfaced events print as a digest, capped at 5 lines with an overflow pointer. Exit 0 =
+digest, 3 = nothing. A peek changes nothing and is safe from any seat, any time.
+
+**Acknowledgment is explicit and durable.** `sm watch --check --ack` journals the facts
+and advances a surfaced watermark for what it printed - only that - so a capped digest
+drains batch by batch and every predicate re-decides from durable state (a watch that
+restarts every 30 seconds classifies identically to one running for hours). Reading is a
+separate act: `sm msg inbox --unread` shows reports past YOUR read cursor and advances
+it, non-destructively. The watch never marks anything read.
+
+**Delivery is a plugin capability, not a core dependency.** `sm floor` always shows the
+truth (unread counts, oldest-unread age, watch armed or NOT armed) with zero setup. A
+human can block on events with `sm watch --timeout 600`. For hands-free delivery into a
+Claude Code desk session, the claude plugin installs seat-gated hooks (Stop +
+UserPromptSubmit) into the desk project's settings:
+
+```
+sm doctor --fix          # run in the desk project: installs the watch hooks
+SM_DESK=1 claude         # launch the desk seat - only this session delivers
+```
+
+Without `SM_DESK=1` the hooks are silent no-ops, so extra desk agents and workers never
+fight over delivery. A consecutive-block budget guarantees a broken check can never wedge
+a session.
 
 ## Repos
 
