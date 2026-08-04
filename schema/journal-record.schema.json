@@ -2,18 +2,18 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/journal-record.schema.json",
   "title": "journal-record",
-  "description": "One line of the per-repo turn journal (~/.config/slot/journal/<repo>.jsonl): an append-only fact about the fleet. The journal is history, never consumed (the inbox is the mailbox). The `type` vocabulary is closed per version: turn-* records are reserved for writers that hold the document's turn section; pane dispatch writes task-dispatched (fire-and-forget delivery has no observable completion, so it must never open a turn).",
+  "description": "One line of the per-repo turn journal (~/.config/slot/journal/<repo>.jsonl): an append-only fact about the fleet. The journal is history, never consumed (the inbox is the mailbox). The `type` vocabulary is closed per version: turn-* records are reserved for writers that hold the document's turn section; pane dispatch writes task-dispatched (fire-and-forget delivery has no observable completion, so it must never open a turn). v2 adds the supervision facts (pr-merged, surfaced, delivered, watch-degraded) and relaxes `slot` to optional - delivered/watch-degraded are fleet-scoped. Slot-scoped types still carry `slot` by writer contract (prose, not schema: the zero-dep validator has no conditionals). Validation is write-side only; reads stay tolerant, so v1 records remain readable.",
   "type": "object",
-  "required": ["v", "ts", "slot", "type"],
+  "required": ["v", "ts", "type"],
   "additionalProperties": false,
   "properties": {
-    "v": { "type": "integer", "const": 1, "description": "record schema version" },
+    "v": { "type": "integer", "const": 2, "description": "record schema version" },
     "ts": { "type": "integer", "description": "when the fact was recorded, epoch ms" },
-    "slot": { "type": "string", "description": "the slot label the fact is about" },
+    "slot": { "type": "string", "description": "the slot label the fact is about (absent on fleet-scoped facts)" },
     "type": {
       "type": "string",
-      "enum": ["worker-created", "task-dispatched", "turn-started", "turn-completed", "worker-replaced"],
-      "description": "closed v1 vocabulary; extend by schema bump, never ad hoc"
+      "enum": ["worker-created", "task-dispatched", "turn-started", "turn-completed", "worker-replaced", "pr-merged", "surfaced", "delivered", "watch-degraded"],
+      "description": "closed v2 vocabulary; extend by schema bump, never ad hoc"
     },
     "agent": { "type": ["string", "null"], "description": "agent instance (worker-created)" },
     "transport": { "type": ["string", "null"], "description": "pane | headless (worker-created)" },
@@ -21,8 +21,12 @@
     "submitted": { "type": "boolean", "description": "task-dispatched: the composer verifiably cleared" },
     "sessionId": { "type": ["string", "null"], "description": "session id, when authoritatively known" },
     "prevSessionId": { "type": ["string", "null"], "description": "worker-replaced: the replaced conversation" },
-    "reason": { "type": ["string", "null"], "description": "worker-replaced: why" },
+    "reason": { "type": ["string", "null"], "description": "worker-replaced/surfaced/watch-degraded: why" },
     "ok": { "type": "boolean", "description": "turn-completed: turn outcome" },
-    "ms": { "type": "integer", "description": "turn-completed: turn duration" }
+    "ms": { "type": "integer", "description": "turn-completed: turn duration" },
+    "pr": { "type": "integer", "description": "pr-merged: the merged PR number (dedup key with slot)" },
+    "claimTs": { "type": "integer", "description": "surfaced with reason crash: the claim ts in the dedup key - a re-claimed slot's crash must not collide with the old claim's fact" },
+    "slots": { "type": "array", "items": { "type": "string" }, "description": "delivered: the slots the digest covered" },
+    "count": { "type": "integer", "description": "delivered: events in the digest" }
   }
 }
