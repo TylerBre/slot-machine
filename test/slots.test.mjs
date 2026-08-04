@@ -530,22 +530,66 @@ test('inbox: report round-trip (append/read/clear)', () => {
   }
 });
 
-test('consumeReports: drops only [from,to), keeps earlier + later (incl. a report appended after)', () => {
+test('consumeReports: drops exactly the displayed ts set, keeps earlier + later (incl. a late arrival)', () => {
   const dir = join(tmpdir(), `slot-consume-${process.pid}`);
   process.env.SLOT_INBOX_DIR = dir;
   try {
-    for (const idx of [0, 1, 2, 3]) appendReport('t', { slot: 'a', message: `r${idx}` });
-    // A watch displayed indices [1,3). Before consuming, a new report lands (index 4).
+    const records = [0, 1, 2, 3].map(idx => appendReport('t', { slot: 'a', message: `r${idx}` }));
+    // A watch displayed r1 + r2. Before consuming, a new report lands.
     appendReport('t', { slot: 'a', message: 'r4-arrived-during' });
-    consumeReports('t', 1, 3); // drop r1, r2 only
+    consumeReports('t', [records[1].ts, records[2].ts]); // drop exactly the displayed two
     const kept = readInbox('t').map(entry => entry.message);
-    // survivors: everything except the consumed [1,3) range - the late arrival must survive.
-    assert.deepEqual(kept, ['r0', 'r3', 'r4-arrived-during']);
-    // boundary cases: from=0 and to=len
+    assert.deepEqual(kept, ['r0', 'r3', 'r4-arrived-during']); // the late arrival must survive
+    // consuming everything currently present empties the inbox
     clearInbox('t');
-    for (const idx of [0, 1, 2]) appendReport('t', { slot: 'a', message: `x${idx}` });
-    consumeReports('t', 0, 3);
+    const more = [0, 1, 2].map(idx => appendReport('t', { slot: 'a', message: `x${idx}` }));
+    consumeReports('t', more.map(record => record.ts));
     assert.deepEqual(readInbox('t'), []);
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+    delete process.env.SLOT_INBOX_DIR;
+  }
+});
+
+test('inbox: ts stamps are strictly monotonic, even inside one millisecond', () => {
+  const dir = join(tmpdir(), `slot-mono-${process.pid}`);
+  process.env.SLOT_INBOX_DIR = dir;
+  const realNow = Date.now;
+  try {
+    const frozen = realNow();
+    Date.now = () => frozen; // freeze the clock: same-ms appends are now guaranteed
+    const first = appendReport('t', { slot: 'a', message: 'one' });
+    const second = appendReport('t', { slot: 'b', message: 'two' });
+    assert.equal(first.ts, frozen);
+    assert.equal(second.ts, frozen + 1); // distinct + increasing despite the frozen clock
+    Date.now = realNow;
+    const third = appendReport('t', { slot: 'c', message: 'three' });
+    assert.ok(third.ts > second.ts);
+  }
+  finally {
+    Date.now = realNow;
+    rmSync(dir, { recursive: true, force: true });
+    delete process.env.SLOT_INBOX_DIR;
+  }
+});
+
+test('inbox: readInbox sinceTs is a strict boundary; waitForReports survives a concurrent clear', async () => {
+  const dir = join(tmpdir(), `slot-since-${process.pid}`);
+  process.env.SLOT_INBOX_DIR = dir;
+  try {
+    const first = appendReport('t', { slot: 'a', message: 'old-1' });
+    const second = appendReport('t', { slot: 'a', message: 'old-2' });
+    assert.deepEqual(readInbox('t', { sinceTs: first.ts }).map(entry => entry.message), ['old-2']); // > not >=
+    assert.deepEqual(readInbox('t', { sinceTs: second.ts }), []);
+
+    // the today-broken scenario: watch armed over N entries, another process clears, a report lands
+    const waiting = waitForReports('t', { timeoutMs: 3000, safetyMs: 100 });
+    clearInbox('t'); // shrinks the file; a length baseline would never trip again
+    setTimeout(appendReport, 50, 't', { slot: 'x', message: 'after-clear' });
+    const got = await waiting;
+    assert.equal(got.length, 1);
+    assert.equal(got[0].message, 'after-clear');
   }
   finally {
     rmSync(dir, { recursive: true, force: true });
