@@ -35,7 +35,8 @@ test('journal: append/read round-trip validates, stamps v/ts, preserves order', 
     assert.equal(got[0].v, JOURNAL_SCHEMA_VERSION); // stamps the current write-side version
     assert.equal(typeof got[0].ts, 'number');
     // note: fsync durability itself is not black-box unit-testable (page-cache coherence makes
-    // fresh-fd reads pass regardless); the fsync call is pinned by code review to spec invariant 5.
+    // fresh-fd reads pass regardless); the fsync call is pinned by code review instead - a fact
+    // reported durable must be on disk, not in page cache.
   }
   finally {
     cleanup(dir);
