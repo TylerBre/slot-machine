@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/inbox-cursor.schema.json",
+  "title": "inbox-cursor",
+  "description": "A monotonic position in a repo's inbox: the newest report ts already read (kind 'read') or already surfaced by watch --ack (kind 'surfaced'). One schema, two files under inbox-state/.",
+  "type": "object",
+  "required": ["v", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "ts": { "type": "integer", "description": "newest inbox ts consumed by this cursor, epoch ms" }
+  }
+}

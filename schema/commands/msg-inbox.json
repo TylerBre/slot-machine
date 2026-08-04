@@ -8,6 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "clear": { "type": "boolean", "description": "print the reports, then empty the inbox (consume them)" },
+    "unread": { "type": "boolean", "description": "show only reports newer than the read cursor, then advance it (non-destructive; reports stay in the inbox)" },
     "number": { "type": "integer", "description": "show only the most recent N reports" },
     "newestFirst": { "type": "boolean", "description": "newest report first; default oldest first" },
     "watch": { "type": "boolean", "description": "block until the next report lands, then print + exit" }
@@ -16,6 +17,7 @@
     "path": ["msg", "inbox"],
     "args": {
       "clear": { "flag": "--clear" },
+      "unread": { "flag": "--unread", "short": "u" },
       "number": { "flag": "--number", "short": "n" },
       "newestFirst": { "flag": "--newest-first" },
       "watch": { "flag": "--watch", "mcpHidden": true }

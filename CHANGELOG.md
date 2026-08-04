@@ -57,6 +57,45 @@ second backend.
 - **Surfaces:** `slot inspect` shows the worker record, `sm floor` gains per-slot transport,
   `sm doctor` checks document health, abandoned write mutexes, and journal size.
 
+Supervision: reports reach the dispatcher deterministically - no recurring AI duty, no
+agent lock-in. One pure classifier decides absorb vs surface; all supervision state is
+durable (monotonic inbox timestamps, two cursor files, journal facts); delivery is an
+optional agent-plugin capability.
+
+- **Report verbs.** Reports lead with `done:` / `blocked:` / `needs-decision:` / `failed:`
+  / `working:` / `paused:`. Parsed on READ, never persisted (no inbox schema bump - a
+  version-skewed reader can never drop new reports); a verb-less report always surfaces.
+  `msg inbox --json` gains a computed `verb`; the human render verb-tags by severity;
+  `msg report` tips on verb-less messages; `--brief` and the role briefings teach the
+  contract to workers.
+- **`sm watch`** - the supervision core. `--check` peeks (gather -> classify -> capped
+  digest; exit 0/3; changes nothing); `--check --ack` surfaces durably (journal facts +
+  surfaced watermark, advanced only through emitted events so digests drain batch by
+  batch; the first ack baselines past the existing backlog instead of deluging it); bare
+  `watch [--loop] [--timeout]` blocks - wakes on reports, re-checks on a cadence for
+  report-less events, arms a floor-visible marker. Surfaced: attention/verb-less reports,
+  stale `paused:` (hourly re-fire), stalled `working:`, crashed workers (claim held,
+  worker gone in two samples - a killed session counts, a mux blip cannot), merged PRs on
+  claimed slots (state-based: an overnight merge surfaces on the next run).
+- **`sm msg inbox --unread`** - non-destructive read cursor: only reports since your last
+  read, then the cursor advances. Reading (`--unread`) and surfacing (`--ack`) are
+  separate cursors; the watch never marks anything read. `--clear` also drops both
+  cursors. `sm floor` shows `unread of total` + oldest-unread age (starvation signal) and
+  the watch armed/NOT-armed line.
+- **Hook delivery for Claude Code desks (optional plugin capability).** `sm doctor --fix`
+  in the desk project installs seat-gated Stop + UserPromptSubmit hooks (project settings,
+  never user-level; idempotent; refuses to rewrite unparseable JSON). Active only under
+  `SM_DESK=1`, so extra desk agents and workers are silent no-ops; a consecutive-block
+  budget (degraded-allow after 3) guarantees a broken check can never wedge a session.
+  Agents without the capability simply have no delivery layer - conformance pins the ops
+  as optional.
+- **Evidence integrity.** Monotonic per-repo inbox timestamps (same-millisecond reports
+  stay distinct); ts-based `--watch` baselines (fixes a latent loss bug where a concurrent
+  `--clear` blinded the watch); checked gh polls (`prMapChecked` - failure distinguishable
+  from "no PRs"); mux-envelope-aware worker samples (a backend error can never fabricate
+  crash alarms); journal record schema v2 (write-side only) adds `pr-merged` / `surfaced`
+  / `delivered` / `watch-degraded` facts.
+
 ### Changed
 
 - **The whole core is multiplexer-agnostic.** Session build/reload/attach/kill, message

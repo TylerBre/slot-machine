@@ -23,3 +23,10 @@ for (const [name, plugin] of Object.entries(BUILTINS)) {
     assert.notEqual(callOp(plugin, 'transcriptAge', { dir: '/no/such', env }).err, ERR.UNSUPPORTED);
   });
 }
+
+test('conformance: delivery ops are OPTIONAL capabilities - a plugin without them still conforms', () => {
+  assert.ok(!REQUIRED.includes('deliverySetup'));
+  // a bare plugin lacking the op yields UNSUPPORTED through the guarded call path - the
+  // core reads that as "this agent has no delivery layer", never as an error
+  assert.equal(callOp({ name: 'bare' }, 'deliverySetup', { deskDir: '/tmp' }).err, ERR.UNSUPPORTED);
+});
