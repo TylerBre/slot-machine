@@ -4,7 +4,7 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-08-04
 
 Multiplexer plugins: slot machine is no longer hardwired to tmux. The session/pane layer
 sits behind the same plugin-contract pattern the agent system uses; tmux stays the built-in
