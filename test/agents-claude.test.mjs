@@ -57,26 +57,49 @@ test('deliverySetup: installs both watch hooks idempotently, preserving unrelate
   fs.mkdirSync(join(desk, '.claude'), { recursive: true });
   writeFileSync(settingsFile, JSON.stringify(pre));
 
-  const first = claude.deliverySetup({ deskDir: desk });
+  const first = claude.deliverySetup({ deskDir: desk, repoDir: '/repo/x' });
   assert.equal(first.ok, true);
   assert.deepEqual(first.value.installed.sort(), ['Stop', 'UserPromptSubmit']);
   const written = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   assert.deepEqual(written.permissions, pre.permissions); // unrelated keys intact
   assert.equal(written.hooks.PostToolUse[0].hooks[0].command, 'my-linter'); // unrelated hook intact
-  assert.match(written.hooks.Stop[0].hooks[0].command, /sm watch --check --ack --hook stop/);
-  assert.match(written.hooks.UserPromptSubmit[0].hooks[0].command, /--hook prompt-submit/);
+  // repo-pinned: the command carries --repo so a global `sm repo use` can never repoint it
+  assert.equal(written.hooks.Stop[0].hooks[0].command, 'sm watch --repo /repo/x --check --ack --hook stop');
+  assert.equal(written.hooks.UserPromptSubmit[0].hooks[0].command, 'sm watch --repo /repo/x --check --ack --hook prompt-submit');
 
   // idempotent: second run installs nothing, changes nothing
-  const second = claude.deliverySetup({ deskDir: desk });
+  const second = claude.deliverySetup({ deskDir: desk, repoDir: '/repo/x' });
   assert.equal(second.value.changed, false);
   assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), written);
+});
+
+test('deliverySetup: upgrades a pre-pin (bare) install in place - no duplicates; doctor reports unpinned', () => {
+  const desk = mkdtempSync(join(tmpdir(), 'sm-desk-up-'));
+  const settingsFile = join(desk, '.claude', 'settings.json');
+  fs.mkdirSync(join(desk, '.claude'), { recursive: true });
+  // a settings file from the pre-pin build: bare command strings
+  writeFileSync(settingsFile, JSON.stringify({
+    hooks: {
+      Stop: [{ matcher: '*', hooks: [{ type: 'command', command: 'sm watch --check --ack --hook stop', timeout: 30 }] }],
+      UserPromptSubmit: [{ matcher: '*', hooks: [{ type: 'command', command: 'sm watch --check --ack --hook prompt-submit', timeout: 30 }] }],
+    },
+  }));
+  const upgraded = claude.deliverySetup({ deskDir: desk, repoDir: '/repo/y' });
+  assert.equal(upgraded.ok, true);
+  assert.deepEqual(upgraded.value.upgraded.sort(), ['Stop', 'UserPromptSubmit']);
+  assert.deepEqual(upgraded.value.installed, []);
+  const written = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  assert.equal(written.hooks.Stop.length, 1); // replaced in place, not duplicated
+  assert.equal(written.hooks.Stop[0].hooks.length, 1);
+  assert.equal(written.hooks.Stop[0].hooks[0].command, 'sm watch --repo /repo/y --check --ack --hook stop');
+  assert.equal(claude.deliverySetup({ deskDir: desk }).ok, false); // repoDir now required
 });
 
 test('deliverySetup: refuses to rewrite a settings file it cannot parse; needs deskDir', () => {
   const desk = mkdtempSync(join(tmpdir(), 'sm-desk-bad-'));
   fs.mkdirSync(join(desk, '.claude'), { recursive: true });
   writeFileSync(join(desk, '.claude', 'settings.json'), '{ not json');
-  const refused = claude.deliverySetup({ deskDir: desk });
+  const refused = claude.deliverySetup({ deskDir: desk, repoDir: '/repo/x' });
   assert.equal(refused.ok, false);
   assert.match(refused.detail, /refusing to rewrite/);
   assert.equal(fs.readFileSync(join(desk, '.claude', 'settings.json'), 'utf8'), '{ not json'); // untouched
