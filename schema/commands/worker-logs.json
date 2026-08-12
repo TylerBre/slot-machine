@@ -4,6 +4,7 @@
   "title": "worker logs",
   "description": "One worker in depth without switching to it: working/idle/waiting state, its last assistant message, and the tail of its pane. Use to tell if a worker needs attention.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["slot"],
   "additionalProperties": false,

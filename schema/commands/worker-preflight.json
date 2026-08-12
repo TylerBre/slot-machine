@@ -4,6 +4,7 @@
   "title": "worker preflight",
   "description": "Confirm the current directory is a slot worktree, not the main checkout, before doing git work. Exits 0 in a slot, non-zero otherwise, so it can gate a chain like `sm worker preflight && git switch -c my-branch`.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

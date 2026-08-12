@@ -4,6 +4,7 @@
   "title": "session ls",
   "description": "List the repo's running tmux sessions (name, windows, slot count, attached).",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

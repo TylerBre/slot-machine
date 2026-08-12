@@ -4,6 +4,7 @@
   "title": "lock release",
   "description": "Free a slot worktree lock or a named resource lock (e.g. \"browser\") - the inverse of claim.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["name"],
   "additionalProperties": false,

@@ -4,6 +4,7 @@
   "title": "slot create",
   "description": "Create a new slot worktree (<root>/<prefix><label>) on branch <prefix><label> off origin/<base>. Does not set up app-specific env/ports.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["label"],
   "additionalProperties": false,

@@ -3,6 +3,7 @@
   "$id": "https://slot-machine/commands/agents-dir.json",
   "title": "agents dir",
   "description": "Set (or show) the global directory that relative user-plugin paths resolve against.",
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": { "path": { "type": "string" } },

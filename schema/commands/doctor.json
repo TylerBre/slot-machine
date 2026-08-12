@@ -4,6 +4,7 @@
   "title": "doctor",
   "description": "Check environment + config health: tmux/git/gh/node present, gh authenticated, the resolved config and its sources, root dir, slots, and base-branch resolvability. ok=false with fails>0 means broken.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

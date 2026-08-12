@@ -4,6 +4,7 @@
   "title": "watch",
   "description": "Dispatcher supervision: gather evidence, classify (absorb/surface), print a digest. --check peeks with no state change; --check --ack additionally journals surfaced/delivered facts and advances the surfaced watermark for emitted events; bare watch blocks until something surfaces. Exit 0 = digest emitted, 3 = nothing to report.",
   "x-mcp": false,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

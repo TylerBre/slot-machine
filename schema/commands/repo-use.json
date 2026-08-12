@@ -4,6 +4,7 @@
   "title": "repo use",
   "description": "Select the current repo - the git repo the other tools act on (root/prefix/session/base are derived from it).",
   "x-mcp": true,
+  "x-web": false,
   "type": "object",
   "required": ["repo"],
   "additionalProperties": false,

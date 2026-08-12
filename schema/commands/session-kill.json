@@ -4,6 +4,7 @@
   "title": "session kill",
   "description": "Kill tmux session(s): pass sessions[] or all=true. Ends the workers' agent processes; a resumable agent's conversation survives on disk.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

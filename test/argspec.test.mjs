@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from 'node:util';
-import { buildArgv, mcpInputSchema, mcpToolName, toParseArgs } from '../lib/argspec.mjs';
+import { buildArgv, mcpInputSchema, mcpToolName, toParseArgs, webExposed } from '../lib/argspec.mjs';
 
 import { readdirSync } from 'node:fs';
 import { loadSchema } from '../lib/schema.mjs';
@@ -201,4 +201,59 @@ test('conformance: worker-run flags are a subset of msg-send (the CLI parses `wo
     // would fail to parse. worker-run.json exists for the MCP tool + help, so keep it in step.
     assert.ok(sendFlags.has(name), `worker-run flag '${name}' is not in msg-send and would not parse`);
   }
+});
+
+// --- the x-web exposure allowlist ---------------------------------------------------------
+
+const WEB_TRUE = new Set([
+  'floor',
+  'journal',
+  'msg-inbox',
+  'slot-ls',
+  'slot-inspect',
+  'worker-ps',
+  'lock-ls',
+  'session-ls',
+  'repo-ls',
+  'version',
+  'watch',
+  'worker-logs',
+  'worker-run',
+  'msg-send',
+  'slot-focus',
+  'slot-reset',
+  'lock-claim',
+  'lock-release',
+  'lock-prune',
+  'slot-create',
+  'slot-rm',
+  'worker-kill',
+  'session-kill',
+  'session-reload',
+  'doctor',
+]);
+
+test('webExposed: strict opt-in - only an explicit x-web true exposes', () => {
+  assert.equal(webExposed({ 'x-web': true }), true);
+  assert.equal(webExposed({ 'x-web': false }), false);
+  assert.equal(webExposed({}), false);
+  assert.equal(webExposed({ 'x-web': 'true' }), false); // strings never qualify
+});
+
+test('schema-lint: every command spec carries an explicit boolean x-web key', () => {
+  for (const file of readdirSync(new URL('../schema/commands', import.meta.url))) {
+    const spec = loadSchema(`commands/${file}`);
+    assert.equal(typeof spec['x-web'], 'boolean', `${file} missing explicit x-web`);
+    const name = file.replace(/\.json$/, '');
+    assert.equal(spec['x-web'], WEB_TRUE.has(name), `${file} x-web disagrees with the exposure table`);
+  }
+});
+
+test('x-web: the sensitive rows stay off the web surface', () => {
+  // msg-report: a browser must not forge worker reports. repo-use: mutates global
+  // cfg.current (the ambient-repoint hazard). session-attach: hands over a terminal.
+  for (const name of ['msg-report', 'repo-use', 'session-attach'])
+    assert.equal(loadSchema(`commands/${name}.json`)['x-web'], false, name);
+  for (const name of ['worker-run', 'msg-send', 'slot-reset'])
+    assert.equal(loadSchema(`commands/${name}.json`)['x-web'], true, name);
 });

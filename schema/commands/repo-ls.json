@@ -4,6 +4,7 @@
   "title": "repo ls",
   "description": "The known repos (dirs sm manages) and which one is current.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

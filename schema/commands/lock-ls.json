@@ -4,6 +4,7 @@
   "title": "lock ls",
   "description": "List held resource locks: resource, holding slot (live/dead worker), age, task.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

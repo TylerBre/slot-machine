@@ -4,6 +4,7 @@
   "title": "msg inbox",
   "description": "Dispatcher: read messages workers posted via sm_msg_report (oldest first). clear=true consumes them after reading.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

@@ -4,6 +4,7 @@
   "title": "slot rm",
   "description": "Remove a slot worktree (git worktree remove). Refuses a live-locked or dirty worktree unless force=true.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["label"],
   "additionalProperties": false,
