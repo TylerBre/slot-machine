@@ -1,7 +1,7 @@
 // test/mux-tmux.test.mjs - the tmux backend's pure output parsers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseGroupLines, parsePaneLines, parseSessionLines } from '../lib/mux/tmux.mjs';
+import tmux, { parseGroupLines, parsePaneLines, parseSessionLines } from '../lib/mux/tmux.mjs';
 
 test('parsePaneLines: full records, label fallback, flags', () => {
   const raw = [
@@ -43,4 +43,18 @@ test('parseGroupLines: pane counts coerced, blank lines skipped', () => {
     { id: '@1', label: 'desk', paneCount: 1 },
     { id: '@2', label: 'slot-a,b,c', paneCount: 3 },
   ]);
+});
+
+test('streamStart: hostile sink or non-integer byteCap refused BEFORE any spawn', () => {
+  // the validation is the security boundary: pipe-pane executes its argument via a shell
+  for (const sink of ['/tmp/x; rm -rf /', '/tmp/a b', '/tmp/$(whoami)', '/tmp/`id`', '\'/tmp/q\'', null]) {
+    const res = tmux.streamStart({ paneId: '%0', sink, byteCap: 1024 });
+    assert.equal(res.ok, false, String(sink));
+    assert.equal(res.err, 'config');
+  }
+  for (const cap of ['9; true', 9.5, -1, 0, null, '1024']) {
+    const res = tmux.streamStart({ paneId: '%0', sink: '/tmp/ok.spool', byteCap: cap });
+    assert.equal(res.ok, false, String(cap));
+    assert.equal(res.err, 'config');
+  }
 });
