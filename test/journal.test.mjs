@@ -241,3 +241,18 @@ test('subscribeJournal: wakes on appends, survives rotation, re-read spans gener
     cleanup(dir);
   }
 });
+
+test('readJournal: a same-ms tie straddling rotation consults the rotated generation (>= boundary)', () => {
+  const dir = freshJournalDir('tie');
+  try {
+    // two records with the SAME ts, one in each generation - the exact straddle
+    writeFileSync(join(dir, 't.jsonl.1'), `${JSON.stringify({ v: 2, ts: 100, slot: 'a', type: 'worker-created' })}\n`);
+    writeFileSync(join(dir, 't.jsonl'), `${JSON.stringify({ v: 2, ts: 100, slot: 'b', type: 'worker-created' })}\n`);
+    const got = readJournal('t', { sinceTs: 100 });
+    assert.equal(got.length, 2, 'the rotated same-ts record must not be skipped');
+    assert.deepEqual(got.map(rec => rec.slot), ['a', 'b']);
+  }
+  finally {
+    cleanup(dir);
+  }
+});
