@@ -5,6 +5,7 @@
   "description": "Dispatcher supervision: gather evidence, classify (absorb/surface), print a digest. --check peeks with no state change; --check --ack additionally journals surfaced/delivered facts and advances the surfaced watermark for emitted events; bare watch blocks until something surfaces. Exit 0 = digest emitted, 3 = nothing to report.",
   "x-mcp": false,
   "x-web": true,
+  "x-exit": { "3": "nothing-to-report" },
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -19,9 +20,9 @@
     "args": {
       "check": { "flag": "--check" },
       "ack": { "flag": "--ack" },
-      "hook": { "flag": "--hook" },
-      "loop": { "flag": "--loop" },
-      "timeout": { "flag": "--timeout", "short": "t" }
+      "hook": { "flag": "--hook", "webHidden": true },
+      "loop": { "flag": "--loop", "webHidden": true },
+      "timeout": { "flag": "--timeout", "short": "t", "webHidden": true }
     }
   }
 }

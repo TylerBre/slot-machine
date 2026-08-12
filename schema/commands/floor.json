@@ -14,8 +14,8 @@
   "x-cli": {
     "path": ["floor"],
     "args": {
-      "watch": { "flag": "--watch", "mcpHidden": true },
-      "follow": { "flag": "--follow", "mcpHidden": true }
+      "watch": { "flag": "--watch", "mcpHidden": true, "webHidden": true },
+      "follow": { "flag": "--follow", "mcpHidden": true, "webHidden": true }
     }
   }
 }

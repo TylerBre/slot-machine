@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from 'node:util';
-import { buildArgv, mcpInputSchema, mcpToolName, toParseArgs, webExposed } from '../lib/argspec.mjs';
+import { buildArgv, commandOutcome, mcpInputSchema, mcpToolName, toParseArgs, webExposed, webInputSchema } from '../lib/argspec.mjs';
 
 import { readdirSync } from 'node:fs';
 import { loadSchema } from '../lib/schema.mjs';
@@ -256,4 +256,61 @@ test('x-web: the sensitive rows stay off the web surface', () => {
     assert.equal(loadSchema(`commands/${name}.json`)['x-web'], false, name);
   for (const name of ['worker-run', 'msg-send', 'slot-reset'])
     assert.equal(loadSchema(`commands/${name}.json`)['x-web'], true, name);
+});
+
+// --- webHidden args + x-exit outcomes -----------------------------------------------------
+
+test('webInputSchema: drops webHidden args from properties AND required; mcp schema untouched', () => {
+  const watchSpec = loadSchema('commands/watch.json');
+  const web = webInputSchema(watchSpec);
+  for (const hidden of ['hook', 'loop', 'timeout'])
+    assert.ok(!(hidden in web.properties), `${hidden} must be webHidden`);
+  assert.ok('check' in web.properties && 'ack' in web.properties);
+  // the MCP view is not affected by webHidden (hook/loop/timeout are not mcpHidden)
+  const mcp = mcpInputSchema(watchSpec);
+  assert.ok('loop' in mcp.properties);
+
+  const inboxSpec = loadSchema('commands/msg-inbox.json');
+  const inboxWeb = webInputSchema(inboxSpec);
+  // consumption verbs stay off the web: clear deletes reports, unread advances the
+  // SHARED read cursor - the cockpit's history read needs neither (client-side cursors)
+  for (const hidden of ['clear', 'unread', 'watch'])
+    assert.ok(!(hidden in inboxWeb.properties), `${hidden} must be webHidden`);
+  assert.ok('number' in inboxWeb.properties);
+});
+
+test('webInputSchema: blocking display flags are webHidden on floor/worker-logs', () => {
+  for (const [name, hiddens] of [['floor', ['watch', 'follow']], ['worker-logs', ['follow', 'watch']]]) {
+    const web = webInputSchema(loadSchema(`commands/${name}.json`));
+    for (const hidden of hiddens)
+      assert.ok(!(hidden in web.properties), `${name}.${hidden}`);
+  }
+});
+
+test('commandOutcome: x-exit maps defined non-zero exits to named ok outcomes', () => {
+  const watchSpec = loadSchema('commands/watch.json');
+  assert.deepEqual(commandOutcome(watchSpec, 0), { ok: true, outcome: 'ok' });
+  assert.deepEqual(commandOutcome(watchSpec, 3), { ok: true, outcome: 'nothing-to-report' });
+  assert.deepEqual(commandOutcome(watchSpec, 1), { ok: false, outcome: 'error' });
+  const floorSpec = loadSchema('commands/floor.json'); // no x-exit: every non-zero is an error
+  assert.deepEqual(commandOutcome(floorSpec, 3), { ok: false, outcome: 'error' });
+});
+
+test('conformance: web and MCP schemas agree modulo their hidden sets, for every exposed spec', () => {
+  for (const file of readdirSync(new URL('../schema/commands', import.meta.url))) {
+    const spec = loadSchema(`commands/${file}`);
+    if (!webExposed(spec))
+      continue;
+    const args = spec['x-cli'].args;
+    const mcpProps = new Set(Object.keys(mcpInputSchema(spec).properties));
+    const webProps = new Set(Object.keys(webInputSchema(spec).properties));
+    for (const name of new Set([...mcpProps, ...webProps])) {
+      const inMcp = mcpProps.has(name);
+      const inWeb = webProps.has(name);
+      if (inMcp && !inWeb)
+        assert.equal(args[name]?.webHidden, true, `${file}:${name} differs without webHidden`);
+      if (!inMcp && inWeb)
+        assert.equal(args[name]?.mcpHidden, true, `${file}:${name} differs without mcpHidden`);
+    }
+  }
 });

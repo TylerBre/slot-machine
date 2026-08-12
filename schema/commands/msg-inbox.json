@@ -17,11 +17,11 @@
   "x-cli": {
     "path": ["msg", "inbox"],
     "args": {
-      "clear": { "flag": "--clear" },
-      "unread": { "flag": "--unread", "short": "u" },
+      "clear": { "flag": "--clear", "webHidden": true },
+      "unread": { "flag": "--unread", "short": "u", "webHidden": true },
       "number": { "flag": "--number", "short": "n" },
       "newestFirst": { "flag": "--newest-first" },
-      "watch": { "flag": "--watch", "mcpHidden": true }
+      "watch": { "flag": "--watch", "mcpHidden": true, "webHidden": true }
     }
   }
 }
