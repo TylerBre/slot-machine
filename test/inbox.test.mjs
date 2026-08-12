@@ -13,6 +13,7 @@ import {
   readCursor,
   readInbox,
   shapeInbox,
+  subscribeReports,
 } from '../lib/inbox.mjs';
 
 // Each test gets an isolated inbox via SLOT_INBOX_DIR; cursors land in the derived
@@ -180,6 +181,34 @@ test('cmdInbox --unread: displays only unread, advances; repeat shows nothing', 
   }
   finally {
     console.log = realLog;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(`${dir}-state`, { recursive: true, force: true });
+    delete process.env.SLOT_INBOX_DIR;
+  }
+});
+
+test('subscribeReports: persistent push nudges, debounced; unsubscribe is final and idempotent', async () => {
+  const dir = join(tmpdir(), `sm-inbox-${process.pid}-sub`);
+  process.env.SLOT_INBOX_DIR = dir;
+  try {
+    let wakes = 0;
+    const unsubscribe = subscribeReports('r', () => wakes++);
+    appendReport('r', { slot: 'a', message: 'one' });
+    appendReport('r', { slot: 'a', message: 'two' }); // same debounce window as 'one'
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal(wakes, 1); // burst collapsed to one nudge
+    // the nudge carries no data - the consumer re-reads with its own cursor and sees BOTH
+    assert.equal(readInbox('r').length, 2);
+    appendReport('r', { slot: 'a', message: 'three' }); // a later append wakes again
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal(wakes, 2);
+    unsubscribe();
+    appendReport('r', { slot: 'a', message: 'four' });
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal(wakes, 2); // nothing after unsubscribe
+    unsubscribe(); // idempotent
+  }
+  finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(`${dir}-state`, { recursive: true, force: true });
     delete process.env.SLOT_INBOX_DIR;

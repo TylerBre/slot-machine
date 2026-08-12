@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendJournal, JOURNAL_SCHEMA_VERSION, journalSize, readJournal, rotateJournalIfNeeded } from '../lib/slots/journal.mjs';
+import { appendJournal, JOURNAL_SCHEMA_VERSION, journalSize, readJournal, rotateJournalIfNeeded, subscribeJournal } from '../lib/slots/journal.mjs';
 import { readWorker } from '../lib/slots/locks.mjs';
 import { REPO_NAME } from '../lib/constants.mjs';
 import { journalDispatch, recordWorker } from '../lib/commands/shared.mjs';
@@ -209,6 +209,33 @@ test('cmdJournal: renders fleet-scoped (slot-less) v2 records without throwing',
     assert.match(out[0], /delivered/);
     assert.match(out[1], /gh flaked/);
     assert.match(out[2], /PR #9/);
+  }
+  finally {
+    cleanup(dir);
+  }
+});
+
+test('subscribeJournal: wakes on appends, survives rotation, re-read spans generations', async () => {
+  const dir = freshJournalDir('sub');
+  process.env.SLOT_JOURNAL_MAX_BYTES = '200'; // force rotation fast
+  try {
+    let wakes = 0;
+    const unsubscribe = subscribeJournal('t', () => wakes++);
+    const first = appendJournal('t', { slot: 'a', type: 'worker-created' });
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.ok(wakes >= 1, 'append wakes');
+    const before = wakes;
+    appendJournal('t', { slot: 'a', type: 'task-dispatched', task: 'x'.repeat(200), submitted: true }); // rotates
+    appendJournal('t', { slot: 'b', type: 'worker-created' }); // fresh live file post-rotation
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.ok(wakes > before, 'appends across a rotation still wake');
+    // the consumer's cursor re-read spans generations (readJournal consults the rotated file)
+    assert.equal(readJournal('t', { sinceTs: first.ts }).length, 3);
+    unsubscribe();
+    const after = wakes;
+    appendJournal('t', { slot: 'c', type: 'worker-created' });
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal(wakes, after);
   }
   finally {
     cleanup(dir);
