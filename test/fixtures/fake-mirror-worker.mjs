@@ -11,6 +11,8 @@ function handle(message) {
   if (op === 'resolve') {
     if (message.slot === 'gone')
       return { ok: false, err: 'slot-gone' };
+    if (message.slot === 'crash')
+      process.exit(7); // worker death mid-ask: the manager must refuse, not die
     if (message.slot === 'slowpane') {
       const until = Date.now() + 300; // a deliberately BLOCKING worker (spawnSync-like)
       while (Date.now() < until) { /* spin */ }

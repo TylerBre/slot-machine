@@ -140,8 +140,13 @@ Events on a `mirror:<slot>` channel (`data.channel` always names it):
 |---|---|---|
 | `open` | `{cols, rows, mode: "pipe"\|"poll"}` | the mirror is live; size xterm accordingly. In `pipe` mode the first data frame is a seeded snapshot of the CURRENT screen, then forward bytes; `poll` mode delivers full redraw frames on change (backends without pipe support) |
 | `data` | `{b64}` | raw terminal bytes, base64. Feed only into xterm.js - never into the DOM |
-| `reset` | | discard terminal state and re-render from subsequent frames (spool rotation or backpressure shed) |
+| `reset` | | discard terminal state; in pipe mode a fresh full-screen frame follows every reset (rotation and backpressure sheds both reseed), so the redraw is immediate |
 | `closed` | `{reason: "budget"\|"server-cap"\|"slot-gone"\|"pipe-lost"\|"pipe-failed"\|"resolve-failed"\|"unsupported"}` | the channel is over; reopening is a reconnect with the channel still listed |
+
+Known limitations, stated: geometry is fixed at `open` (no resize event yet - reopen the
+channel after resizing a pane); a foreign tool replacing the pane's pipe is undetectable
+(tmux reports pipe presence, not ownership - the mirror freezes silently; serve never
+replaces a foreign pipe itself).
 
 Contract points: mirrors do not participate in the cursor vector (no replay - a mirror
 is a live view, not a log); frames may be shed under backpressure, always announced by
