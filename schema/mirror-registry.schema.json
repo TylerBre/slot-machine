@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://slot-machine/mirror-registry.schema.json",
+  "title": "mirror-registry",
+  "description": "The pane mirror's durable session registry (~/.config/slot/serve/mirror-registry.json): which panes are piped to which spools, held by which serve process. Written BEFORE the pipe starts (rollback on failure) so a crashed serve leaves a registry the next startup sweep can reconcile against reality - a pipe with no registry entry is unfindable, a registry entry with a dead holder is sweepable. Single-writer by construction (the serve pidfile guarantees one instance); writes are atomic tmp+rename.",
+  "type": "object",
+  "required": ["v", "sessions"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "schema version" },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["repo", "slot", "paneId", "sink", "pid", "openedAt", "mode"],
+        "additionalProperties": false,
+        "properties": {
+          "repo": { "type": "string", "description": "registered repo name" },
+          "slot": { "type": "string", "description": "slot label being mirrored" },
+          "paneId": { "type": "string", "description": "backend pane handle at open time" },
+          "sink": { "type": "string", "description": "absolute spool path receiving the bytes" },
+          "pid": { "type": "integer", "description": "the serve process holding this session" },
+          "pidStart": { "type": ["string", "null"], "description": "holder pid-identity token, when known" },
+          "openedAt": { "type": "integer", "description": "epoch ms" },
+          "mode": { "type": "string", "enum": ["pipe", "poll"], "description": "pipe = mux streamStart; poll = capture diff fallback" }
+        }
+      }
+    }
+  }
+}
