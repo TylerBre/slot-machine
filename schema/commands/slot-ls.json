@@ -4,6 +4,7 @@
   "title": "slot ls",
   "description": "List every slot (worktree) with its status (free/merged = reusable; waiting-merge/wip/dirty/closed-pr/locked/stale/unknown = busy), tracker issue, associated PR(s), branch, and live/dead worker. Use this to find a reusable slot before handing off work.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

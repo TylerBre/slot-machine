@@ -4,6 +4,7 @@
   "title": "worker wait",
   "description": "Block until the targeted workers finish - the dispatcher's wait step. Polls activity and returns when no targeted slot is actively working (idle/waiting/dead); exits nonzero at the timeout. CLI-only: a long blocking call does not belong on the agent MCP surface.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

@@ -3,6 +3,7 @@
   "$id": "https://slot-machine/commands/agents-rm.json",
   "title": "agents rm",
   "description": "Remove a roster instance (refused if another instance uses it as a base).",
+  "x-web": false,
   "type": "object",
   "required": ["name"],
   "additionalProperties": false,

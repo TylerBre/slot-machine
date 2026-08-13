@@ -33,3 +33,20 @@ for (const [name, plugin] of Object.entries(BUILTINS)) {
     }
   });
 }
+
+test('mux conformance: streaming ops are optional capabilities with honest envelopes', () => {
+  for (const [name, plugin] of Object.entries(BUILTINS)) {
+    for (const op of ['streamStart', 'streamStop', 'streamStatus', 'paneSize']) {
+      assert.ok(op in MUX_OPS, `${op} missing from the catalog`);
+      assert.equal(MUX_OPS[op].req, false, `${op} must be optional`);
+      if (typeof plugin[op] !== 'function') {
+        // a backend without the capability yields UNSUPPORTED through the guarded path
+        assert.equal(callOp(plugin, op, {}).err, ERR.UNSUPPORTED, `${name}.${op}`);
+      }
+    }
+    if (name === 'tmux') {
+      for (const op of ['streamStart', 'streamStop', 'streamStatus', 'paneSize'])
+        assert.equal(typeof plugin[op], 'function', `tmux must implement ${op}`);
+    }
+  }
+});

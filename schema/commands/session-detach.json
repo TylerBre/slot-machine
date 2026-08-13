@@ -4,6 +4,7 @@
   "title": "session detach",
   "description": "Detach your own client when run inside tmux with no session given; otherwise detach every client attached to the named (or sole running) session.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

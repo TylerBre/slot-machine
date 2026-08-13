@@ -3,6 +3,7 @@
   "$id": "https://slot-machine/commands/slot-config.json",
   "title": "slot config",
   "description": "Set a slot's agent-instance and/or model override.",
+  "x-web": false,
   "type": "object",
   "required": ["label"],
   "additionalProperties": false,

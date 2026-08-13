@@ -4,6 +4,7 @@
   "title": "slot reset",
   "description": "Return a slot to a clean base branch @ origin/<base> (to reuse a merged one). Refuses a live-locked or dirty slot, or one with a turn in flight, unless force=true. The worker (conversation) survives a reset; hard-worker=true clears it too, so the next dispatch starts a fresh conversation.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["slot"],
   "additionalProperties": false,

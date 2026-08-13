@@ -4,6 +4,7 @@
   "title": "floor",
   "description": "One-shot fleet snapshot for the dispatcher: running sessions, every slot's worker/activity/transport/task/lock, held resource locks, and the unread inbox count - one call instead of four. Cheap (multiplexer + lockfiles only, no git/gh); use sm_slot_ls when you need reusability classification.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -13,8 +14,8 @@
   "x-cli": {
     "path": ["floor"],
     "args": {
-      "watch": { "flag": "--watch", "mcpHidden": true },
-      "follow": { "flag": "--follow", "mcpHidden": true }
+      "watch": { "flag": "--watch", "mcpHidden": true, "webHidden": true },
+      "follow": { "flag": "--follow", "mcpHidden": true, "webHidden": true }
     }
   }
 }

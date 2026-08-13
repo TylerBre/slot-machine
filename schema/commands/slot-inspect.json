@@ -4,6 +4,7 @@
   "title": "slot inspect",
   "description": "Deep info on one slot: branch, tracker issue, git state (dirty / commits ahead of the base), worker (live/dead), lock owner + LIVE/STALE staleness (and cross-wiring), and every PR for its branch.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["slot"],
   "additionalProperties": false,

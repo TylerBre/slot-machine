@@ -4,6 +4,7 @@
   "title": "repo inspect",
   "description": "One repo's resolved context (root, prefix, session prefix, base branch). Defaults to the current repo when no repo is given.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

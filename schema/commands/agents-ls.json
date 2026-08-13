@@ -3,6 +3,7 @@
   "$id": "https://slot-machine/commands/agents-ls.json",
   "title": "agents ls",
   "description": "List the agent roster: each instance, its base plugin, models, and load/conformance status.",
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

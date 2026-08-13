@@ -4,6 +4,7 @@
   "title": "journal",
   "description": "Read the repo's turn journal: append-only facts about the fleet (worker-created, task-dispatched, turn-started/completed, worker-replaced), newest last. History - the inbox stays the mailbox for messages that need reading; the journal is what happened, for supervision and debugging.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

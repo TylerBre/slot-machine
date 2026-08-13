@@ -4,6 +4,7 @@
   "title": "worker role",
   "description": "The desk->slots operating model: your role and how to work within it. Auto-detects your role from the current directory (worker inside a slot worktree, else dispatcher); pass role to force one.",
   "x-mcp": true,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

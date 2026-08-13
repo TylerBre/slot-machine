@@ -4,6 +4,7 @@
   "title": "worker run",
   "description": "The dispatcher hand-off: pick a free slot with a live worker (resetting a merged/reusable one to a clean base first) and send it a task. Returns the chosen slot.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["message"],
   "additionalProperties": false,

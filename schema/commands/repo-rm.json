@@ -4,6 +4,7 @@
   "title": "repo rm",
   "description": "Forget a repo (config only - nothing on disk is touched). Clears the current repo if it was the one removed.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "required": ["repo"],
   "additionalProperties": false,

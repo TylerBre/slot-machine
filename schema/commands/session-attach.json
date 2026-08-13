@@ -4,6 +4,7 @@
   "title": "session attach",
   "description": "Attach/switch the client to a running session - the most recently active one by default, so a bare attach continues where you left off.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

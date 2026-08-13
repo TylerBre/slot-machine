@@ -4,6 +4,7 @@
   "title": "version",
   "description": "Build + runtime identity of this sm install: version, node, install path and source (git sha when run from a checkout, else packaged), the MCP entry point, and the current repo.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {},

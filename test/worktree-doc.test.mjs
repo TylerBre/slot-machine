@@ -8,10 +8,12 @@ import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  claimIfFree,
   claimTurn,
   parsePidStart,
   pidIdentityLive,
   readDoc,
+  readLock,
   readTurn,
   readWorker,
   releaseTurn,
@@ -238,4 +240,47 @@ test('pidIdentityLive: probes fail toward ALIVE; identity mismatch on a live pid
   assert.equal(pidIdentityLive(recorded, { kill: () => true, lstart: () => null }), true);
   // a recorded turn with no identity token at all: only pid liveness decides
   assert.equal(pidIdentityLive({ pid: 4242, pidStart: null }, { kill: () => true, lstart: () => 'x' }), true);
+});
+
+test('claimIfFree: claims only an unclaimed document; a held claim survives byte-identical', () => {
+  const dir = join(tmpdir(), `sm-cif-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  try {
+    assert.equal(claimIfFree(dir, { session: 's1', task: 'first task' }), true);
+    const held = readLock(dir);
+    assert.equal(held.session, 's1');
+    assert.equal(held.task, 'first task');
+    // second claimant refused; the existing claim untouched
+    assert.equal(claimIfFree(dir, { session: 's2', task: 'poacher' }), false);
+    const after = readLock(dir);
+    assert.equal(after.session, 's1');
+    assert.equal(after.task, 'first task');
+    assert.equal(after.ts, held.ts); // the claim's own stamp did not move
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('claimIfFree: two concurrent claimants - exactly one winner', async () => {
+  const dir = join(tmpdir(), `sm-cif-race-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const locksUrl = new URL('../lib/slots/locks.mjs', import.meta.url).href;
+  const script = `import('${locksUrl}').then(m => console.log(m.claimIfFree(process.argv[1], { session: process.argv[2], task: 't' })));`;
+  try {
+    const { spawn } = await import('node:child_process');
+    const runOne = session => new Promise((resolve) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script, dir, session], { encoding: 'utf8' });
+      let outText = '';
+      child.stdout.on('data', chunk => outText += chunk);
+      child.on('close', () => resolve(outText.trim()));
+    });
+    const results = await Promise.all([runOne('a'), runOne('b')]);
+    assert.deepEqual(results.slice().sort(), ['false', 'true'], `got ${results}`);
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

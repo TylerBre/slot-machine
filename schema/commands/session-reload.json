@@ -4,6 +4,7 @@
   "title": "session reload",
   "description": "Bring a running session up to date with the slot inventory: every slot without a pane gets a fresh worker pane appended (resuming its conversation); existing panes untouched. Use after sm_slot_create.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

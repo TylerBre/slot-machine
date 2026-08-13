@@ -4,6 +4,7 @@
   "title": "stats",
   "description": "Per-command usage from the local usage log: what gets used, what fails, what's slow.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

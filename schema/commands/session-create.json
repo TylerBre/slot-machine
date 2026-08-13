@@ -4,6 +4,7 @@
   "title": "session create",
   "description": "Build a tmux session laying out every slot worktree, N panes per window.",
   "x-mcp": false,
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

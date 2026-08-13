@@ -4,6 +4,7 @@
   "title": "lock prune",
   "description": "Remove stale worktree locks (owner session dead). Pass slots[] to target specific ones, or stale=true to clear every dead lock. dryRun previews; force removes live locks too.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

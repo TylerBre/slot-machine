@@ -22,6 +22,7 @@ import {
   reloadPaneWidth,
   reloadTargetWindow,
   resolveSlots,
+  selectAndClaim,
   selectPanes,
 } from '../lib/slots/pure.mjs';
 import {
@@ -979,4 +980,23 @@ test('workersFromPanes: live/dead per label; slotWorkerSample shape carries the 
   ];
   const workers = workersFromPanes(panes);
   assert.deepEqual(workers, { a: 'live', b: 'dead' });
+});
+
+test('selectAndClaim: loser of a claim race re-picks from remaining candidates; exhaustion yields null', async () => {
+  const rows = [
+    { slot: 'a', status: 'free', worker: 'live' },
+    { slot: 'b', status: 'free', worker: 'live' },
+  ];
+  // first candidate is stolen out from under the picker - it must fall through to the next
+  const stolen = new Set(['a']);
+  const picked = await selectAndClaim(rows, async pick => !stolen.has(pick.slot));
+  assert.equal(picked.slot, 'b');
+  // everything stolen: honest null, exactly one attempt per candidate
+  const attempts = [];
+  const none = await selectAndClaim(rows, async (pick) => {
+    attempts.push(pick.slot);
+    return false;
+  });
+  assert.equal(none, null);
+  assert.deepEqual(attempts.sort(), ['a', 'b']);
 });

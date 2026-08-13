@@ -3,6 +3,7 @@
   "$id": "https://slot-machine/commands/repo-config.json",
   "title": "repo config",
   "description": "Set the current repo's default agent instance and/or model.",
+  "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {

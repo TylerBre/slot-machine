@@ -4,6 +4,7 @@
   "title": "worker kill",
   "description": "End one worker's process; its pane falls back to a shell (worker shows dead) and the session stays intact. The conversation survives on disk.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "required": ["slot"],
   "additionalProperties": false,

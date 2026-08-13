@@ -4,6 +4,7 @@
   "title": "worker ps",
   "description": "Every worker at a glance - the dispatcher's cheap poll (tmux + locks only, no git/gh). One row per slot: worker live/dead/none, activity working/idle/waiting, and the task its lock carries. Use sm_slot_ls when you need reusability.",
   "x-mcp": true,
+  "x-web": true,
   "type": "object",
   "additionalProperties": false,
   "properties": {

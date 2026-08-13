@@ -3,6 +3,7 @@
   "$id": "https://slot-machine/commands/agents-add.json",
   "title": "agents add",
   "description": "Add a roster instance: --use an existing plugin, --plugin a new user plugin, or (built-in name, no plugin/use) configure a built-in's default.",
+  "x-web": false,
   "type": "object",
   "required": ["name"],
   "additionalProperties": false,
