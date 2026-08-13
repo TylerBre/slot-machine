@@ -370,7 +370,8 @@ test('mirror: open carries geometry+mode, spool bytes arrive as ordered b64 data
     const bytes = got.filter(evt => evt.data.t === 'data')
       .map(evt => Buffer.from(evt.data.b64, 'base64').toString('utf8'))
       .join('');
-    assert.ok(bytes.includes('FAKE-PANE-BYTES'), `spool bytes must flow (got: ${bytes.slice(0, 40)})`);
+    assert.ok(bytes.startsWith('SEEDED-SCREEN'), 'the current screen is seeded before forward bytes');
+    assert.ok(bytes.includes('FAKE-PANE-BYTES'), `forward bytes must flow (got: ${bytes.slice(0, 40)})`);
   }
   finally {
     client.close();

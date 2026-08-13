@@ -65,7 +65,7 @@ test('refcount: two viewers share one pipe; linger tears down after the last lea
   const second = await manager.openMirror('r', '/tmp/r', 'a');
   assert.equal(first.sink, second.sink);
   assert.equal(first.mode, 'pipe');
-  assert.deepEqual(logLines(), ['pipeStart %a']); // ONE pipe
+  assert.deepEqual(logLines(), ['pipeStart %a', 'seed %a']); // ONE pipe (+ its screen seed)
   await sleep(80);
   assert.ok(readFileSync(first.sink, 'utf8').includes('FAKE-PANE-BYTES')); // bytes flow
 

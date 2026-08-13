@@ -52,6 +52,11 @@ function handle(message) {
     const dead = writer && existsSync(`${writer.sink}.dead`);
     return { ok: true, value: { piped: !!writer && !dead } };
   }
+  if (op === 'seed') {
+    log(`seed ${message.paneId}`);
+    appendFileSync(message.sink, 'SEEDED-SCREEN');
+    return { ok: true, value: true };
+  }
   if (op === 'pollStart') {
     log(`pollStart ${message.paneId}`);
     appendFileSync(message.sink, 'POLLED-FRAME');
