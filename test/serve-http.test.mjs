@@ -5,7 +5,7 @@ import { Buffer } from 'node:buffer';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VERSION } from '../lib/constants.mjs';
@@ -125,4 +125,64 @@ test('taxonomy: 404 unknown api route, 415 wrong content-type, 413 over the body
   assert.equal((await raw({ method: 'POST', path: '/api/v1/session', headers: { 'content-type': 'text/plain' }, body: 'x' })).status, 415);
   const big = await jsonReq('/api/v1/session', { token: 'x'.repeat(300_000) });
   assert.equal(big.status, 413);
+});
+
+test('single instance: a live pidfile refuses a second serve; a stale one is overwritten', async () => {
+  // a live FOREIGN holder (the test runner's parent - reliably alive, reliably not us;
+  // the guard deliberately exempts our own pid, so the before() serve cannot stand in)
+  const LIVE = join(BASE, 'state-live');
+  mkdirSync(LIVE, { recursive: true });
+  writeFileSync(join(LIVE, 'serve.pid'), JSON.stringify({ pid: process.ppid, startedAt: 1 }));
+  process.env.SLOT_SERVE_DIR = LIVE;
+  try {
+    await assert.rejects(
+      () => startServe({ port: 0, spawnTarget: join(BASE, 'fake-sm'), repos: {} }),
+      /already running/,
+    );
+  }
+  finally {
+    process.env.SLOT_SERVE_DIR = STATE;
+  }
+  // a stale holder (dead pid) is taken over: point the seam at a fresh dir with a dead pid
+  const STALE = join(BASE, 'state-stale');
+  mkdirSync(STALE, { recursive: true });
+  writeFileSync(join(STALE, 'serve.pid'), JSON.stringify({ pid: 999999, startedAt: 1 }));
+  process.env.SLOT_SERVE_DIR = STALE;
+  try {
+    const second = await startServe({ port: 0, spawnTarget: join(BASE, 'fake-sm'), repos: {} });
+    await second.close();
+    assert.equal(existsSync(join(STALE, 'serve.pid')), false); // released on close
+  }
+  finally {
+    process.env.SLOT_SERVE_DIR = STATE;
+  }
+});
+
+test('teardown: a connected SSE client receives serve-shutdown before the socket drops', async () => {
+  const CLEAN = join(BASE, 'state-teardown');
+  process.env.SLOT_SERVE_DIR = CLEAN;
+  let target;
+  try {
+    target = await startServe({ port: 0, spawnTarget: join(BASE, 'fake-sm'), repos: { gemini: '/tmp/g' } });
+    const frames = [];
+    await new Promise((resolvePromise) => {
+      const req = request(
+        { host: '127.0.0.1', port: target.port, path: '/api/v1/repos/gemini/stream?channels=inbox', headers: { authorization: `Bearer ${target.token}` } },
+        (res) => {
+          res.setEncoding('utf8');
+          res.on('data', chunk => frames.push(chunk));
+          res.on('end', resolvePromise);
+          res.on('close', resolvePromise);
+          setTimeout(() => target.close(), 100); // shut down while connected
+        },
+      );
+      req.end();
+    });
+    assert.match(frames.join(''), /event: serve-shutdown/);
+  }
+  finally {
+    if (target)
+      await target.close().catch(() => {});
+    process.env.SLOT_SERVE_DIR = STATE;
+  }
 });
