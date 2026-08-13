@@ -14,7 +14,7 @@ import { VERSION } from '../lib/constants.mjs';
 import { appendReport, clearInbox } from '../lib/inbox.mjs';
 import { appendJournal } from '../lib/slots/journal.mjs';
 import { createStreamHub, parseVector } from '../lib/serve/stream.mjs';
-import { startServe } from '../lib/serve/http.mjs';
+import { startServe } from '../lib/serve/server.mjs';
 
 const BASE = join(tmpdir(), `sm-serve-stream-${process.pid}`);
 const REPO = 'streamrepo';

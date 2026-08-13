@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VERSION } from '../lib/constants.mjs';
-import { startServe } from '../lib/serve/http.mjs';
+import { startServe } from '../lib/serve/server.mjs';
 
 const BASE = join(tmpdir(), `sm-serve-cmd-${process.pid}`);
 const LOG = join(BASE, 'spawn.log');
