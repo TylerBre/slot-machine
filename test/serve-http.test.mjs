@@ -14,7 +14,6 @@ import { startServe } from '../lib/serve/http.mjs';
 
 const BASE = join(tmpdir(), `sm-serve-http-${process.pid}`);
 const STATE = join(BASE, 'state');
-const UI = join(BASE, 'ui');
 let serve;
 
 // Raw request helper (fetch forbids Host-header control, which the 421 test needs).
@@ -46,15 +45,13 @@ function jsonReq(path, body, headers = {}) {
 
 before(async () => {
   rmSync(BASE, { recursive: true, force: true });
-  mkdirSync(UI, { recursive: true });
+  mkdirSync(BASE, { recursive: true });
   process.env.SLOT_SERVE_DIR = STATE;
   // fixture spawn target: answers the version probe with serve's own version (no skew)
   const fixture = join(BASE, 'fake-sm');
   writeFileSync(fixture, `#!/bin/sh\necho '{"slot-machine":"${VERSION}"}'\n`);
   chmodSync(fixture, 0o755);
-  writeFileSync(join(UI, 'index.html'), '<!doctype html><title>cockpit</title>');
-  writeFileSync(join(UI, 'app.js'), 'export {}');
-  serve = await startServe({ port: 0, uiDir: UI, spawnTarget: fixture, repos: { gemini: '/tmp/gemini' } });
+  serve = await startServe({ port: 0, spawnTarget: fixture, repos: { gemini: '/tmp/gemini' } });
 });
 after(async () => {
   await serve.close();
@@ -106,17 +103,15 @@ test('catalog: only x-web tools, webHidden args absent, outcomes ride along', as
   assert.ok(watch.outcomes.includes('nothing-to-report'));
 });
 
-test('static: CSP on everything, traversal defended, SPA fallback to index.html', async () => {
-  const index = await raw({ path: '/' });
-  assert.equal(index.status, 200);
-  assert.equal(index.headers['content-security-policy'], 'default-src \'self\'');
-  assert.match(index.text, /cockpit/);
-  assert.equal((await raw({ path: '/app.js' })).headers['content-type'], 'text/javascript');
-  const traversal = await raw({ path: '/..%2f..%2f..%2fetc%2fpasswd' });
-  assert.ok(traversal.status === 404 || traversal.text.includes('cockpit'), 'never escapes uiDir');
-  assert.ok(!traversal.text.includes('root:'), 'never serves outside uiDir');
-  const spa = await raw({ path: '/some/client/route' });
-  assert.match(spa.text, /cockpit/); // index fallback
+test('API-only: sm serve never serves HTML - every non-/api path is an honest 404', async () => {
+  // Separation of concerns (Tyler, 2026-08-13): sm is purely the API backend; the
+  // cockpit runs on its OWN origin (with its own content policy) and proxies /api here.
+  for (const path of ['/', '/index.html', '/some/client/route', '/..%2f..%2f..%2fetc%2fpasswd']) {
+    const res = await raw({ path });
+    assert.equal(res.status, 404, path);
+    assert.match(res.text, /API-only/);
+    assert.ok(!res.text.includes('root:'), 'nothing from the filesystem, ever');
+  }
 });
 
 test('taxonomy: 404 unknown api route, 415 wrong content-type, 413 over the body cap', async () => {

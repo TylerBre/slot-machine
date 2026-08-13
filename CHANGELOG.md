@@ -17,7 +17,7 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
   MCP), the ONE multiplexed SSE stream per tab (inbox/journal deltas resumable by
   monotonic ts cursor with delivered-through id stamping; floor/watch as complete
   conflated snapshots; real ka heartbeats; honest gap/cursor-reset advisories), pairing
-  token -> stateless HttpOnly HMAC sessions, Host allowlist, strict-CSP static hosting,
+  token -> stateless HttpOnly HMAC sessions, Host allowlist,
   partitioned spawn pools, per-repo worker-run serialization, a version-skew gate on
   mutations, a single-instance pidfile, ordered teardown, and doctor checks.
 - **`x-web` exposure layer**: every command spec carries an explicit boolean; webHidden
@@ -36,6 +36,10 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
   viewers with a linger; per-tab (4) and server-wide (8) budgets; pipe-lost and rotate
   surfaced honestly as events; poll-dump fallback for backends without pipe support.
 - **docs/http-api.md** - the committed wire contract sm-cockpit builds against.
+- **API-only, by design**: sm serve never serves HTML (any non-/api path is an honest
+  404) and holds no opinion about a UI's content policy - the cockpit runs on its own
+  origin, ships its own meta CSP, and proxies /api to serve (browser stays same-origin,
+  so the no-CORS cookie model is untouched).
 
 ## [1.4.0] - 2026-08-04
 
