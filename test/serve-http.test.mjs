@@ -1,4 +1,4 @@
-// sm serve http skeleton: auth flow, host allowlist, static hosting + traversal defense,
+// sm serve http skeleton: auth flow, host allowlist, the API-only posture,
 // meta/catalog/healthz, status taxonomy. Hermetic: ephemeral port, tmp state dir, a
 // fixture spawn target that answers the version probe.
 import { Buffer } from 'node:buffer';
