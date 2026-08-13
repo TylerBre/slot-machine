@@ -4,6 +4,33 @@ All notable changes to slot-machine are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The web-cockpit bridge: sm gains an HTTP+SSE surface for the dispatcher cockpit
+(sm-cockpit, a separate repo). The core stays zero-dep; the web app never touches sm
+internals - everything rides the argspec-derived contract in docs/http-api.md.
+
+### Added
+
+- **`sm serve`** - a zero-dep node:http bridge on 127.0.0.1: the x-web command allowlist
+  over one generic POST (the third registration of the argspec surface, after CLI and
+  MCP), the ONE multiplexed SSE stream per tab (inbox/journal deltas resumable by
+  monotonic ts cursor with delivered-through id stamping; floor/watch as complete
+  conflated snapshots; real ka heartbeats; honest gap/cursor-reset advisories), pairing
+  token -> stateless HttpOnly HMAC sessions, Host allowlist, strict-CSP static hosting,
+  partitioned spawn pools, per-repo worker-run serialization, a version-skew gate on
+  mutations, a single-instance pidfile, ordered teardown, and doctor checks.
+- **`x-web` exposure layer**: every command spec carries an explicit boolean; webHidden
+  args (consumption verbs, blocking flags) stay off the web schema; x-exit maps defined
+  non-zero exits to named ok outcomes.
+- **Standing subscriptions** over inbox/journal (persistent debounced fs.watch nudges)
+  and **mux streaming ops** (tmux pipe-pane capture behind the contract) for the coming
+  pane mirror.
+- **Conditional dispatch claim**: worker-run/msg -f now claim inside the serialized
+  document mutation and re-pick on a lost race - two dispatchers can never double-book a
+  slot (fixes a long-standing TOCTOU).
+- **docs/http-api.md** - the committed wire contract sm-cockpit builds against.
+
 ## [1.4.0] - 2026-08-04
 
 Multiplexer plugins: slot machine is no longer hardwired to tmux. The session/pane layer
