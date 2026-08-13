@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { EventEmitter } from 'node:events';
 import { request } from 'node:http';
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VERSION } from '../lib/constants.mjs';
@@ -345,5 +345,139 @@ test('stall: snapshots conflate to the latest; every id obeys the delivered-thro
   finally {
     req.emit('close'); // disconnect: cleanups run, pollers release
     hub.closeAll();
+  }
+});
+
+// --- mirror channels (Task 13): the fake mirror worker stands in for the mux arm ------
+
+test('mirror: open carries geometry+mode, spool bytes arrive as ordered b64 data', async () => {
+  process.env.MIRROR_FAKE_LOG = join(BASE, 'fake-mirror.log');
+  const target = await startServe({
+    port: 0,
+    spawnTarget: fixture,
+    repos: { [REPO]: '/tmp/stream-repo' },
+    streamIntervals: { floorMs: 60_000, watchMs: 60_000, kaMs: 60_000 },
+    mirrorOptions: { workerUrl: new URL('./fixtures/fake-mirror-worker.mjs', import.meta.url), lingerMs: 80 },
+  });
+  const client = sseConnect({ port: target.port, token: target.token, path: `/api/v1/repos/${REPO}/stream?channels=mirror:alpha` });
+  try {
+    await client.waitFor('mirror:alpha', 3, 4000);
+    const got = client.events.filter(evt => evt.event === 'mirror:alpha');
+    assert.equal(got[0].data.t, 'open');
+    assert.equal(got[0].data.cols, 120);
+    assert.equal(got[0].data.rows, 32);
+    assert.equal(got[0].data.mode, 'pipe');
+    const bytes = got.filter(evt => evt.data.t === 'data')
+      .map(evt => Buffer.from(evt.data.b64, 'base64').toString('utf8'))
+      .join('');
+    assert.ok(bytes.startsWith('SEEDED-SCREEN'), 'the current screen is seeded before forward bytes');
+    assert.ok(bytes.includes('FAKE-PANE-BYTES'), `forward bytes must flow (got: ${bytes.slice(0, 40)})`);
+  }
+  finally {
+    client.close();
+    await target.close();
+    delete process.env.MIRROR_FAKE_LOG;
+  }
+});
+
+test('mirror: per-tab budget closes the 5th channel; unknown slot closes slot-gone; disconnect releases the pipe', async () => {
+  const LOG2 = join(BASE, 'fake-mirror2.log');
+  process.env.MIRROR_FAKE_LOG = LOG2;
+  const target = await startServe({
+    port: 0,
+    spawnTarget: fixture,
+    repos: { [REPO]: '/tmp/stream-repo' },
+    streamIntervals: { floorMs: 60_000, watchMs: 60_000, kaMs: 60_000 },
+    mirrorOptions: { workerUrl: new URL('./fixtures/fake-mirror-worker.mjs', import.meta.url), lingerMs: 60, pipesMax: 8 },
+  });
+  const channels = 'mirror:a,mirror:b,mirror:c,mirror:d,mirror:e,mirror:gone';
+  const client = sseConnect({ port: target.port, token: target.token, path: `/api/v1/repos/${REPO}/stream?channels=${channels}` });
+  try {
+    // the 5th (e) exceeds MIRROR_PER_TAB=4 -> budget close; 'gone' resolves to slot-gone
+    await client.waitFor('mirror:e', 1, 4000);
+    const budget = client.events.find(evt => evt.event === 'mirror:e');
+    assert.equal(budget.data.t, 'closed');
+    assert.equal(budget.data.reason, 'budget');
+    await client.waitFor('mirror:a', 1, 4000);
+    assert.equal(client.events.find(evt => evt.event === 'mirror:a').data.t, 'open');
+  }
+  finally {
+    client.close();
+  }
+  try {
+    // disconnect: after linger, every pipe stops (refcounts released by the close cleanups)
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 300));
+    const log = readFileSync(LOG2, 'utf8');
+    for (const slot of ['a', 'b', 'c', 'd'])
+      assert.ok(log.includes(`pipeStop %${slot}`), `pipe for ${slot} must stop after disconnect (log: ${log})`);
+  }
+  finally {
+    await target.close(); // a failed assertion must never leave the server (and file) hanging
+    delete process.env.MIRROR_FAKE_LOG;
+  }
+});
+
+test('mirror: pipe-lost surfaces as a closed event; poll-mode backends open as poll', async () => {
+  process.env.MIRROR_FAKE_LOG = join(BASE, 'fake-mirror3.log');
+  const target = await startServe({
+    port: 0,
+    spawnTarget: fixture,
+    repos: { [REPO]: '/tmp/stream-repo' },
+    streamIntervals: { floorMs: 60_000, watchMs: 60_000, kaMs: 60_000 },
+    mirrorOptions: { workerUrl: new URL('./fixtures/fake-mirror-worker.mjs', import.meta.url), lingerMs: 60, statusPollMs: 70 },
+  });
+  const client = sseConnect({ port: target.port, token: target.token, path: `/api/v1/repos/${REPO}/stream?channels=mirror:alpha,mirror:nostream` });
+  try {
+    await client.waitFor('mirror:nostream', 1, 4000);
+    assert.equal(client.events.find(evt => evt.event === 'mirror:nostream').data.mode, 'poll');
+    await client.waitFor('mirror:alpha', 1, 4000);
+    // kill the pipe underneath: the fake's status reads not-piped when sink.dead exists.
+    // The live pipe keeps emitting data frames, so scan for the closed event explicitly.
+    const spool = join(BASE, 'state', 'spools', `${REPO}.alpha.spool`);
+    writeFileSync(`${spool}.dead`, '');
+    const deadline = Date.now() + 4000;
+    let lost;
+    while (!lost && Date.now() < deadline) {
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 50));
+      lost = client.events.filter(evt => evt.event === 'mirror:alpha').find(evt => evt.data.t === 'closed');
+    }
+    assert.equal(lost?.data.reason, 'pipe-lost');
+  }
+  finally {
+    client.close();
+    await target.close();
+    delete process.env.MIRROR_FAKE_LOG;
+  }
+});
+
+test('mirror: crossing the rotate threshold sheds the queue with a reset, then fresh bytes flow', async () => {
+  process.env.MIRROR_FAKE_LOG = join(BASE, 'fake-mirror4.log');
+  const target = await startServe({
+    port: 0,
+    spawnTarget: fixture,
+    repos: { [REPO]: '/tmp/stream-repo' },
+    streamIntervals: { floorMs: 60_000, watchMs: 60_000, kaMs: 60_000, mirrorRotateBytes: 200 },
+    mirrorOptions: { workerUrl: new URL('./fixtures/fake-mirror-worker.mjs', import.meta.url), lingerMs: 60 },
+  });
+  const client = sseConnect({ port: target.port, token: target.token, path: `/api/v1/repos/${REPO}/stream?channels=mirror:alpha` });
+  try {
+    // the fake writes 16 bytes every 30ms; 200 bytes trips in ~400ms
+    const deadline = Date.now() + 5000;
+    let sawReset = false;
+    let dataAfterReset = false;
+    while (Date.now() < deadline && !dataAfterReset) {
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 100));
+      const got = client.events.filter(evt => evt.event === 'mirror:alpha');
+      const resetIndex = got.findIndex(evt => evt.data.t === 'reset');
+      sawReset = resetIndex >= 0;
+      dataAfterReset = sawReset && got.slice(resetIndex + 1).some(evt => evt.data.t === 'data');
+    }
+    assert.ok(sawReset, 'a reset must announce the rotate');
+    assert.ok(dataAfterReset, 'fresh bytes must follow the rotate');
+  }
+  finally {
+    client.close();
+    await target.close();
+    delete process.env.MIRROR_FAKE_LOG;
   }
 });

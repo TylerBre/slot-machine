@@ -29,6 +29,12 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
 - **Conditional dispatch claim**: worker-run/msg -f now claim inside the serialized
   document mutation and re-pick on a lost race - two dispatchers can never double-book a
   slot (fixes a long-standing TOCTOU).
+- **The pane mirror**: `mirror:<slot>` channels on the stream - a live read-only view of
+  a worker's terminal in the browser. tmux pipe-pane capture (seeded with the current
+  screen on open) behind a worker thread so the HTTP loop never blocks on the mux; a
+  durable session registry written before the pipe with a startup sweep; refcounted
+  viewers with a linger; per-tab (4) and server-wide (8) budgets; pipe-lost and rotate
+  surfaced honestly as events; poll-dump fallback for backends without pipe support.
 - **docs/http-api.md** - the committed wire contract sm-cockpit builds against.
 
 ## [1.4.0] - 2026-08-04
