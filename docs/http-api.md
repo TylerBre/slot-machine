@@ -14,8 +14,12 @@ GET  /api/v1/commands                      the exposed-command catalog
 POST /api/v1/commands/:tool                invoke a command
 GET  /api/v1/repos/:repo/stream            THE multiplexed SSE stream (one per tab)
 GET  /api/v1/healthz                       unauthenticated liveness
-GET  /*                                    static hosting of a built cockpit (--ui)
 ```
+
+sm serve is **API-only**: it never serves HTML and holds no opinion about a UI's content
+policy. Any non-/api path is an honest 404. The cockpit runs on its OWN origin and
+proxies `/api` to serve - the browser stays same-origin, so the cookie model below works
+without any CORS mode.
 
 There are deliberately no per-command GET routes: every read that has a CLI command goes
 through the one generic POST, exactly like MCP - the HTTP surface derives from the same
@@ -23,9 +27,9 @@ through the one generic POST, exactly like MCP - the HTTP surface derives from t
 
 ## Auth
 
-- **Pairing:** `sm serve` prints `http://127.0.0.1:<port>/#token=<hex>` once. The client
-  reads the fragment, POSTs `{"token": "<hex>"}` (JSON) to `/api/v1/session`, and drops
-  the fragment from history. The fragment never reaches a server or a log, but it DOES
+- **Pairing:** `sm serve` prints the token once; pairing happens at the COCKPIT's origin
+  (open `<cockpit-url>/#token=<hex>`). The client reads the fragment, POSTs
+  `{"token": "<hex>"}` (JSON) to `/api/v1/session`, and drops the fragment from history. The fragment never reaches a server or a log, but it DOES
   land in browser history - rotate with `sm serve --rotate-token` when in doubt.
 - **Session:** the response sets `sm_session` - HttpOnly, SameSite=Strict, 30-day. The
   cookie value is `exp.HMAC-SHA256(token, exp)`: stateless, so sessions survive serve
@@ -38,7 +42,8 @@ through the one generic POST, exactly like MCP - the HTTP surface derives from t
   Authorization header cross-site).
 - The `Host` header must be `127.0.0.1:<port>` or `localhost:<port>` - anything else is
   `421` before routing (DNS-rebinding defense). No CORS headers are ever emitted; there
-  is no cross-origin mode. Dev mode is a same-origin proxy (see sm-cockpit).
+  is no cross-origin mode. The cockpit's proxy (dev AND production) keeps the browser
+  same-origin and forwards Host/Origin/Sec-Fetch-Site/cookies faithfully.
 
 ## Commands
 
@@ -124,8 +129,11 @@ millisecond re-stamps an equal ts and is indistinguishable from the consumed rec
   nodes only** - no innerHTML, no markdown-to-HTML, anywhere. These bytes come from
   autonomous, prompt-injectable agents.
 - Terminal bytes (the pane mirror, when it ships) go only into xterm.js.
-- The static UI is served under `Content-Security-Policy: default-src 'self'`; builds
-  must not require inline script/eval.
+- The UI owns its own content policy: the built `index.html` MUST ship a
+  `<meta http-equiv="Content-Security-Policy">` with `script-src 'self'` (no inline
+  script, no eval) plus whatever style/font sources its stack needs (xterm.js wants
+  `style-src 'self' 'unsafe-inline'`). sm never stamps a content policy - it serves no
+  content.
 
 ## Mirror channels
 

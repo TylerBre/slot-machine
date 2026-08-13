@@ -264,19 +264,21 @@ a session.
 
 `sm serve` exposes the fleet to a browser: the same command surface the CLI and MCP
 share (an explicit `x-web` allowlist of it), plus live event streams, on `127.0.0.1`
-only. The dispatcher cockpit web app lives in its own repo (sm-cockpit) and talks only
-this bridge - it never touches sm internals or state files.
+only. It is API-ONLY - sm never serves HTML. The dispatcher cockpit web app lives in its
+own repo (sm-cockpit), runs on its own origin, proxies `/api` to this bridge, and never
+touches sm internals or state files.
 
 ```
-sm serve --ui ~/Documents/sm-cockpit/dist   # host the built cockpit + the API
-sm serve --rotate-token                     # re-mint the pairing credential
+sm serve                    # the API bridge (default port 7767)
+sm serve --rotate-token     # re-mint the pairing credential
 ```
 
-Pairing: serve prints a one-time URL with a token fragment; the browser exchanges it for
-an HttpOnly session cookie and drops it - after pairing, no credential exists anywhere
-page JavaScript can read. The token is an execution credential for this machine (the
-surface dispatches tasks and resets slots), so it lives 0600, compares constant-time,
-and rotation is one flag. Full wire contract: docs/http-api.md.
+Pairing: serve prints a one-time token; open the COCKPIT's URL with `#token=<hex>` and
+the browser exchanges it for an HttpOnly session cookie, then drops it - after pairing,
+no credential exists anywhere page JavaScript can read. The token is an execution
+credential for this machine (the surface dispatches tasks and resets slots), so it lives
+0600, compares constant-time, and rotation is one flag. Full wire contract:
+docs/http-api.md.
 
 ## Repos
 

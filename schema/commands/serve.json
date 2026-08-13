@@ -2,21 +2,19 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://slot-machine/commands/serve.json",
   "title": "serve",
-  "description": "The HTTP+SSE bridge for the dispatcher cockpit: expose the x-web command surface, the event streams, and a built cockpit UI on 127.0.0.1. Long-running; Ctrl-C to stop. Prints the pairing URL (with the token fragment) once at startup.",
+  "description": "The HTTP+SSE bridge for the dispatcher cockpit: expose the x-web command surface and the event streams on 127.0.0.1 (API-only; the cockpit UI runs on its own origin and proxies /api here). Long-running; Ctrl-C to stop. Prints the pairing URL (with the token fragment) once at startup.",
   "x-mcp": false,
   "x-web": false,
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "port": { "type": "integer", "description": "bind port (default 7767; always 127.0.0.1)" },
-    "ui": { "type": "string", "description": "directory of a built cockpit UI to host statically" },
     "rotateToken": { "type": "boolean", "description": "re-mint the pairing token, print the new pairing URL, and exit" }
   },
   "x-cli": {
     "path": ["serve"],
     "args": {
       "port": { "flag": "--port", "short": "p" },
-      "ui": { "flag": "--ui" },
       "rotateToken": { "flag": "--rotate-token" }
     }
   }
