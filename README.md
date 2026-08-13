@@ -260,6 +260,24 @@ Without `SM_DESK=1` the hooks are silent no-ops, so extra desk agents and worker
 fight over delivery. A consecutive-block budget guarantees a broken check can never wedge
 a session.
 
+## The cockpit bridge (sm serve)
+
+`sm serve` exposes the fleet to a browser: the same command surface the CLI and MCP
+share (an explicit `x-web` allowlist of it), plus live event streams, on `127.0.0.1`
+only. The dispatcher cockpit web app lives in its own repo (sm-cockpit) and talks only
+this bridge - it never touches sm internals or state files.
+
+```
+sm serve --ui ~/Documents/sm-cockpit/dist   # host the built cockpit + the API
+sm serve --rotate-token                     # re-mint the pairing credential
+```
+
+Pairing: serve prints a one-time URL with a token fragment; the browser exchanges it for
+an HttpOnly session cookie and drops it - after pairing, no credential exists anywhere
+page JavaScript can read. The token is an execution credential for this machine (the
+surface dispatches tasks and resets slots), so it lives 0600, compares constant-time,
+and rotation is one flag. Full wire contract: docs/http-api.md.
+
 ## Repos
 
 Everything derives from a repo's main-worktree dir, so `sm` is multi-repo:
