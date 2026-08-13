@@ -127,10 +127,28 @@ millisecond re-stamps an equal ts and is indistinguishable from the consumed rec
 - The static UI is served under `Content-Security-Policy: default-src 'self'`; builds
   must not require inline script/eval.
 
-## Mirror channels (reserved)
+## Mirror channels
 
-`mirror:<slot>` channels (live pane mirroring, at most 4 per connection) ship with the
-mirror milestone; their protocol will be added here before any client depends on it.
+`mirror:<slot>` in the `channels=` list opens a live, read-only mirror of that slot's
+terminal on the same connection. **At most 4 mirror channels per connection** - a 5th is
+answered immediately with `closed {reason: "budget"}`; the server also holds a global
+session cap (8), refused as `closed {reason: "server-cap"}`.
+
+Events on a `mirror:<slot>` channel (`data.channel` always names it):
+
+| `t` | payload | meaning |
+|---|---|---|
+| `open` | `{cols, rows, mode: "pipe"\|"poll"}` | the mirror is live; size xterm accordingly. In `pipe` mode the first data frame is a seeded snapshot of the CURRENT screen, then forward bytes; `poll` mode delivers full redraw frames on change (backends without pipe support) |
+| `data` | `{b64}` | raw terminal bytes, base64. Feed only into xterm.js - never into the DOM |
+| `reset` | | discard terminal state and re-render from subsequent frames (spool rotation or backpressure shed) |
+| `closed` | `{reason: "budget"\|"server-cap"\|"slot-gone"\|"pipe-lost"\|"pipe-failed"\|"resolve-failed"\|"unsupported"}` | the channel is over; reopening is a reconnect with the channel still listed |
+
+Contract points: mirrors do not participate in the cursor vector (no replay - a mirror
+is a live view, not a log); frames may be shed under backpressure, always announced by
+`reset`; closing the tab or dropping the channel releases the viewer refcount and the
+pipe stops after a short linger (a quick reload rejoins the warm pipe); mirrored bytes
+are whatever the worker prints, i.e. potentially secrets - they are never persisted
+beyond a 0600 spool that is unlinked on teardown.
 
 ## Versioning
 
