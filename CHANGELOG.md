@@ -20,6 +20,12 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
   is indistinguishable from a quiet fleet - the failure this closes. Refines the "v1 marker"
   open question logged in docs/superpowers/plans/2026-08-04-supervision.md.
 
+- **`sm watch --baseline`** - skip the surfaced watermark past everything currently in the
+  inbox, in one step. Found the hard way: a 266-report backlog drains at DIGEST_MAX per
+  ack, which through the Stop hook is one BLOCKED STOP per five events. `--clear` would
+  have done it but consumes the reports. Non-destructive; they stay readable via
+  `sm msg inbox`.
+
 - **`sm serve`** - a zero-dep node:http bridge on 127.0.0.1: the x-web command allowlist
   over one generic POST (the third registration of the argspec surface, after CLI and
   MCP), the ONE multiplexed SSE stream per tab (inbox/journal deltas resumable by

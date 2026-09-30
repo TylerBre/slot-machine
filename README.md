@@ -268,6 +268,13 @@ The seat lives or dies with the pid that holds it, so a crashed desk frees it wi
 sweep. `sm floor` reports who holds it, because the failure mode is silent: an unseated
 desk looks exactly like a quiet fleet.
 
+A long-unwatched fleet arrives as a backlog, and the digest is capped - through the Stop
+hook that is one blocked stop per few events. Skip past it once:
+
+```
+sm watch --baseline      # stop looking back; the reports stay readable in sm msg inbox
+```
+
 Without a seat - env var or marker - the hooks are silent no-ops, so extra desk agents and
 workers never fight over delivery. A consecutive-block budget guarantees a broken check
 can never wedge a session.

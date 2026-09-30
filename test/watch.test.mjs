@@ -7,7 +7,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REPO_NAME } from '../lib/constants.mjs';
-import { appendReport, readCursor } from '../lib/inbox.mjs';
+import { appendReport, readCursor, readInbox } from '../lib/inbox.mjs';
 import { readJournal } from '../lib/slots/journal.mjs';
 import { cmdWatch, hasSeat, readArmed, readSeat, runCheck, runHook, runWatchBlocking } from '../lib/commands/watch.mjs';
 
@@ -346,6 +346,37 @@ test('desk seat: a claimed seat opens the hook path without SM_DESK, and dies wi
     if (realDesk === undefined)
       delete process.env.SM_DESK;
     else process.env.SM_DESK = realDesk;
+    cleanup(dirs);
+  }
+});
+
+test('watch --baseline: skips the watermark past a stale backlog in one shot, non-destructively', async () => {
+  const dirs = fresh('baseline');
+  try {
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() })); // set an initial watermark
+    // A backlog bigger than one digest: draining via --ack alone would take several cycles,
+    // and through the Stop hook that is several blocked stops - the thing this avoids.
+    for (let index = 0; index < 12; index++)
+      appendReport(REPO_NAME, { slot: 'a', message: `blocked: stale ${index}` });
+
+    const { result: capped } = await silent(() => runCheck({ world: quietWorld() }));
+    assert.equal(capped.emitted.length, 5);
+    assert.equal(capped.overflow, 7); // 12 waiting, one digest cannot hold them
+
+    await silent(() => cmdWatch(['--baseline']));
+
+    // Nothing left to surface, in ONE step rather than three ack cycles.
+    const { result: after } = await silent(() => runCheck({ ack: true, world: quietWorld() }));
+    assert.equal(after.exitCode, 3);
+    // Non-destructive: the reports are still there to read.
+    assert.equal(readInbox(REPO_NAME).length, 13);
+    // And a genuinely new report still surfaces afterwards.
+    appendReport(REPO_NAME, { slot: 'b', message: 'blocked: fresh one' });
+    const { result: fresh3 } = await silent(() => runCheck({ ack: true, world: quietWorld() }));
+    assert.deepEqual(fresh3.emitted.map(event => event.message), ['blocked: fresh one']);
+  }
+  finally {
     cleanup(dirs);
   }
 });
