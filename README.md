@@ -256,9 +256,21 @@ sm doctor --fix          # run in the desk project: installs the watch hooks
 SM_DESK=1 claude         # launch the desk seat - only this session delivers
 ```
 
-Without `SM_DESK=1` the hooks are silent no-ops, so extra desk agents and workers never
-fight over delivery. A consecutive-block budget guarantees a broken check can never wedge
-a session.
+Already in a session you forgot to launch that way? Claim the seat in place instead of
+restarting:
+
+```
+sm watch --seat          # this session is the desk; --pid <n> if sm's parent is not it
+sm watch --unseat        # hand it back
+```
+
+The seat lives or dies with the pid that holds it, so a crashed desk frees it without a
+sweep. `sm floor` reports who holds it, because the failure mode is silent: an unseated
+desk looks exactly like a quiet fleet.
+
+Without a seat - env var or marker - the hooks are silent no-ops, so extra desk agents and
+workers never fight over delivery. A consecutive-block budget guarantees a broken check
+can never wedge a session.
 
 ## The cockpit bridge (sm serve)
 

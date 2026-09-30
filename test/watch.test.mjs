@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { REPO_NAME } from '../lib/constants.mjs';
 import { appendReport, readCursor } from '../lib/inbox.mjs';
 import { readJournal } from '../lib/slots/journal.mjs';
-import { readArmed, runCheck, runHook, runWatchBlocking } from '../lib/commands/watch.mjs';
+import { cmdWatch, hasSeat, readArmed, readSeat, runCheck, runHook, runWatchBlocking } from '../lib/commands/watch.mjs';
 
 const quietWorld = () => ({ slots: [], workersA: {}, workersB: null, activity: {}, snapshotOk: true, prs: { ok: true, bySlot: {} } });
 
@@ -278,6 +278,69 @@ test('hook path: prompt-submit delivers as additionalContext, never blocks, igno
     // quiet fleet: silent no-action
     const quiet = await runHook({ type: 'prompt-submit', world: quietWorld() });
     assert.deepEqual(quiet, { exitCode: 0, out: '', errText: '' });
+  }
+  finally {
+    if (realDesk === undefined)
+      delete process.env.SM_DESK;
+    else process.env.SM_DESK = realDesk;
+    cleanup(dirs);
+  }
+});
+
+test('desk seat: a claimed seat opens the hook path without SM_DESK, and dies with its session', async () => {
+  const dirs = fresh('seat');
+  const realDesk = process.env.SM_DESK;
+  try {
+    delete process.env.SM_DESK;
+    assert.equal(readSeat(REPO_NAME), null, 'no seat to start');
+    assert.equal(hasSeat(REPO_NAME), false);
+
+    // Baseline the backlog first, or the first ack spends itself setting the watermark
+    // instead of emitting - that is the check/ack contract, not a seat concern.
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() }));
+
+    // The gap this closes: unseated, the hook is silent and acks nothing, and before the
+    // seat file existed the ONLY way to open it was relaunching under SM_DESK=1.
+    appendReport(REPO_NAME, { slot: 'a', message: 'blocked: needs a desk' });
+    const before = readCursor(REPO_NAME, 'surfaced');
+    assert.deepEqual(await runHook({ type: 'stop', world: quietWorld() }), { exitCode: 0, out: '', errText: '' });
+    assert.equal(readCursor(REPO_NAME, 'surfaced'), before, 'unseated acks nothing');
+
+    // Claim it for a pid that is definitely alive - this process.
+    await silent(() => cmdWatch(['--seat', '--pid', String(process.pid)]));
+    const seat = readSeat(REPO_NAME);
+    assert.equal(seat.pid, process.pid);
+    assert.equal(hasSeat(REPO_NAME), true);
+
+    // Same event now blocks the stop, with no env var anywhere.
+    assert.equal(process.env.SM_DESK, undefined);
+    const blocked = await runHook({ type: 'stop', world: quietWorld() });
+    assert.equal(blocked.exitCode, 2);
+    assert.match(blocked.errText, /blocked: needs a desk/);
+    assert.ok(readCursor(REPO_NAME, 'surfaced') > before, 'seated delivery acks');
+
+    // A seat whose session is gone reads as unclaimed - no manual sweep, no stale seat
+    // silently holding delivery hostage after a crash.
+    writeFileSync(
+      join(`${dirs.inbox}-state`, `${REPO_NAME || 'default'}.desk-seat.json`),
+      `${JSON.stringify({ pid: 2147483646, startedAt: Date.now() })}\n`,
+    );
+    assert.equal(readSeat(REPO_NAME), null, 'dead holder = unclaimed');
+    assert.equal(hasSeat(REPO_NAME), false);
+
+    // ...and SM_DESK still works on its own, so every existing launcher is untouched.
+    process.env.SM_DESK = '1';
+    assert.equal(hasSeat(REPO_NAME), true);
+    delete process.env.SM_DESK;
+
+    // Release is idempotent and actually closes the gate.
+    await silent(() => cmdWatch(['--seat', '--pid', String(process.pid)]));
+    assert.equal(hasSeat(REPO_NAME), true);
+    await silent(() => cmdWatch(['--unseat']));
+    assert.equal(readSeat(REPO_NAME), null);
+    await silent(() => cmdWatch(['--unseat']));
+    assert.equal(hasSeat(REPO_NAME), false);
   }
   finally {
     if (realDesk === undefined)

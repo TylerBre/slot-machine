@@ -13,7 +13,10 @@
     "ack": { "type": "boolean", "description": "with --check: durably surface - journal facts + advance the surfaced watermark for emitted events" },
     "hook": { "type": "string", "description": "agent-hook protocol mode (stop | prompt-submit): seat-gated output shaping, wired by the agent delivery capability" },
     "loop": { "type": "boolean", "description": "blocking mode: keep watching and printing digests until the timeout" },
-    "timeout": { "type": "integer", "description": "blocking mode: max seconds to wait before exiting 3" }
+    "timeout": { "type": "integer", "description": "blocking mode: max seconds to wait before exiting 3" },
+    "seat": { "type": "boolean", "description": "claim the desk seat for this repo from an already-running session, so the hook path delivers without relaunching under SM_DESK=1" },
+    "unseat": { "type": "boolean", "description": "release this repo's desk seat" },
+    "pid": { "type": "integer", "description": "with --seat: the session pid whose liveness holds the seat (default: this process's parent)" }
   },
   "x-cli": {
     "path": ["watch"],
@@ -22,7 +25,10 @@
       "ack": { "flag": "--ack" },
       "hook": { "flag": "--hook", "webHidden": true },
       "loop": { "flag": "--loop", "webHidden": true },
-      "timeout": { "flag": "--timeout", "short": "t", "webHidden": true }
+      "timeout": { "flag": "--timeout", "short": "t", "webHidden": true },
+      "seat": { "flag": "--seat", "webHidden": true },
+      "unseat": { "flag": "--unseat", "webHidden": true },
+      "pid": { "flag": "--pid", "webHidden": true }
     }
   }
 }

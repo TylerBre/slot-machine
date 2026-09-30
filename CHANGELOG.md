@@ -12,6 +12,14 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
 
 ### Added
 
+- **`sm watch --seat` / `--unseat`** - claim the desk delivery seat from a session that is
+  already running, instead of relaunching it under `SM_DESK=1`. The seat is a pidfile in
+  the inbox-state dir whose liveness is the holding session's pid, so a crashed desk frees
+  it with no manual sweep; `SM_DESK=1` still works unchanged and either marker opens the
+  hook gate. `sm floor` now reports the seat, because an unseated desk delivers nothing and
+  is indistinguishable from a quiet fleet - the failure this closes. Refines the "v1 marker"
+  open question logged in docs/superpowers/plans/2026-08-04-supervision.md.
+
 - **`sm serve`** - a zero-dep node:http bridge on 127.0.0.1: the x-web command allowlist
   over one generic POST (the third registration of the argspec surface, after CLI and
   MCP), the ONE multiplexed SSE stream per tab (inbox/journal deltas resumable by
