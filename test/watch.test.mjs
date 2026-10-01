@@ -437,3 +437,69 @@ test('blocking watch survives a failing tick instead of ending supervision silen
     cleanup(dirs);
   }
 });
+
+test('seat baton: the daemon peeks while a desk holds the seat, and delivers when it does not', async () => {
+  const dirs = fresh('baton');
+  const realDesk = process.env.SM_DESK;
+  try {
+    delete process.env.SM_DESK;
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() })); // baseline
+
+    // Desk seated: the hook path owns delivery, so a daemon tick must NOT consume the
+    // event. Two acking watchers split events and the loser sees a quiet fleet - the
+    // failure is silence, which is why this is pinned rather than left to review.
+    await silent(() => cmdWatch(['--seat', '--pid', String(process.pid)]));
+    const before = readCursor(REPO_NAME, 'surfaced');
+    const landingA = setTimeout(appendReport, 100, REPO_NAME, { slot: 'a', message: 'blocked: while seated' });
+    await silent(() => runWatchBlocking({ loop: false, timeoutMs: 4000, world: quietWorld(), mode: 'daemon' }));
+    clearTimeout(landingA);
+    assert.equal(readCursor(REPO_NAME, 'surfaced'), before, 'seated: the daemon peeked and acked nothing');
+
+    // Seat released: the daemon is now the only reader, so it delivers.
+    await silent(() => cmdWatch(['--unseat']));
+    const landingB = setTimeout(appendReport, 100, REPO_NAME, { slot: 'b', message: 'blocked: while unseated' });
+    await silent(() => runWatchBlocking({ loop: false, timeoutMs: 4000, world: quietWorld(), mode: 'daemon' }));
+    clearTimeout(landingB);
+    assert.ok(readCursor(REPO_NAME, 'surfaced') > before, 'unseated: the daemon acked');
+
+    // THE hasSeat TRAP, pinned. SM_DESK=1 in the DAEMON's own env says nothing about
+    // whether a desk is sitting anywhere - hasSeat() would read the caller's env and
+    // conclude a desk exists, so the daemon would stop acking and nobody would deliver.
+    // Only a seat FILE means a desk. This is why the baton calls readSeat, not hasSeat.
+    process.env.SM_DESK = '1';
+    const beforeTrap = readCursor(REPO_NAME, 'surfaced');
+    const landingC = setTimeout(appendReport, 100, REPO_NAME, { slot: 'c', message: 'blocked: SM_DESK set, no seat file' });
+    await silent(() => runWatchBlocking({ loop: false, timeoutMs: 4000, world: quietWorld(), mode: 'daemon' }));
+    clearTimeout(landingC);
+    delete process.env.SM_DESK;
+    assert.ok(
+      readCursor(REPO_NAME, 'surfaced') > beforeTrap,
+      'SM_DESK in the daemon env must NOT be read as a seated desk - it would silence delivery',
+    );
+  }
+  finally {
+    if (realDesk === undefined)
+      delete process.env.SM_DESK;
+    else process.env.SM_DESK = realDesk;
+    cleanup(dirs);
+  }
+});
+
+test('armed marker carries its mode, so a foreground loop cannot clobber a live daemon', async () => {
+  const dirs = fresh('mode');
+  try {
+    const landing = setTimeout(appendReport, 100, REPO_NAME, { slot: 'a', message: 'done: x' });
+    const run = runWatchBlocking({ loop: true, timeoutMs: 900, world: quietWorld(), mode: 'daemon' });
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const armed = readArmed(REPO_NAME);
+    assert.equal(armed.mode, 'daemon', 'the marker says what kind of watch holds it');
+    assert.equal(armed.pid, process.pid);
+    await run;
+    clearTimeout(landing);
+    assert.equal(readArmed(REPO_NAME), null, 'and it is cleared on exit');
+  }
+  finally {
+    cleanup(dirs);
+  }
+});

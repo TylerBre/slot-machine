@@ -46,6 +46,22 @@
     "baseline": {
       "type": "boolean",
       "description": "skip the surfaced watermark past every report currently in the inbox - stops a stale backlog from draining one digest (or one blocked stop) at a time; non-destructive, reports stay readable via sm msg inbox"
+    },
+    "daemon": {
+      "type": "boolean",
+      "description": "detach and supervise until stopped - survives the desk session closing"
+    },
+    "status": {
+      "type": "boolean",
+      "description": "is a watch armed for this repo? pid, mode, uptime, and who holds the desk seat"
+    },
+    "stop": {
+      "type": "boolean",
+      "description": "signal the armed daemon for this repo to exit"
+    },
+    "daemon-child": {
+      "type": "boolean",
+      "description": "internal: marks the detached child so it arms as mode=daemon (not for direct use)"
     }
   },
   "x-cli": {
@@ -86,6 +102,22 @@
       },
       "baseline": {
         "flag": "--baseline",
+        "webHidden": true
+      },
+      "daemon": {
+        "flag": "--daemon",
+        "webHidden": true
+      },
+      "status": {
+        "flag": "--status",
+        "webHidden": true
+      },
+      "stop": {
+        "flag": "--stop",
+        "webHidden": true
+      },
+      "daemon-child": {
+        "flag": "--daemon-child",
         "webHidden": true
       }
     }

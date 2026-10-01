@@ -20,6 +20,21 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
   is indistinguishable from a quiet fleet - the failure this closes. Refines the "v1 marker"
   open question logged in docs/superpowers/plans/2026-08-04-supervision.md.
 
+- **`sm watch --daemon | --status | --stop`** - supervision that outlives the desk session.
+  The loop was already a daemon in everything but lifetime; this adds detach (reparented to
+  init, version-stable spawn target so a Homebrew upgrade cannot strand it), a log in the
+  inbox-STATE dir (never the watched inbox dir - fs.watch there would make every log line
+  wake every watcher), and a `mode` field on the armed marker that makes it a real
+  single-instance lock: a second daemon is refused, and a foreground `--loop` refuses to
+  clobber a live one.
+
+  **The desk seat is the baton.** The daemon acks only while no desk holds the seat; when
+  one does, it drops to a peek and the agent hooks own delivery. No new cursor, no config -
+  handover is safe both directions because the watermark and journal facts are shared. It
+  reads `readSeat`, never `hasSeat`: `hasSeat` also honours `SM_DESK=1` from the caller's
+  own env, which says nothing about whether a desk is sitting there, and trusting it would
+  silence delivery entirely. That trap is pinned by a test.
+
 - **`needs-input` supervision event** - a claimed slot parked on its agent's permission
   prompt now surfaces. The agent plugin already recognised that shape (its `activity` op
   returns `waiting`) and the gatherer already sampled it every tick, but classify only
