@@ -20,6 +20,15 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
   is indistinguishable from a quiet fleet - the failure this closes. Refines the "v1 marker"
   open question logged in docs/superpowers/plans/2026-08-04-supervision.md.
 
+- **`needs-input` supervision event** - a claimed slot parked on its agent's permission
+  prompt now surfaces. The agent plugin already recognised that shape (its `activity` op
+  returns `waiting`) and the gatherer already sampled it every tick, but classify only
+  ever used activity to ABSORB `stalled-working`, so a worker blocked on a prompt was
+  invisible. It is the one fleet state nothing resolves on its own: no report arrives, no
+  worker dies, the claim just sits. Surfaces on sight, then re-surfaces every
+  `NEEDS_INPUT_RESURFACE_MIN` so an unanswered prompt keeps nagging. Pure classify change,
+  no new IO.
+
 - **`sm watch --baseline`** - skip the surfaced watermark past everything currently in the
   inbox, in one step. Found the hard way: a 266-report backlog drains at DIGEST_MAX per
   ack, which through the Stop hook is one BLOCKED STOP per five events. `--clear` would
