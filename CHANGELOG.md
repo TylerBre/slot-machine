@@ -12,6 +12,60 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
 
 ### Added
 
+- **`sm watch --seat` / `--unseat`** - claim the desk delivery seat from a session that is
+  already running, instead of relaunching it under `SM_DESK=1`. The seat is a pidfile in
+  the inbox-state dir whose liveness is the holding session's pid, so a crashed desk frees
+  it with no manual sweep; `SM_DESK=1` still works unchanged and either marker opens the
+  hook gate. `sm floor` now reports the seat, because an unseated desk delivers nothing and
+  is indistinguishable from a quiet fleet - the failure this closes. Refines the "v1 marker"
+  open question logged in docs/superpowers/plans/2026-08-04-supervision.md.
+
+- **`sm floor --board`** - a non-interactive fleet board for the desk's second pane.
+  Zero-dep and hand-rolled: alternate screen, home-and-clear-per-line repaint (no flicker,
+  no scrollback eaten), restore on exit and on signal. It answers the question a dispatcher
+  actually repeats - not "what happened" but "what is stuck, and on whom" - so NEEDS YOU is
+  first and human-blocked PRs get their own section, grouped by reviewer, because five
+  slots each individually fine can still be one person's queue.
+
+  READ-ONLY by construction: it renders a classify PEEK, never acks, never advances the
+  read cursor. A consuming board would starve the daemon and the hook path, and the failure
+  would look like a quiet fleet. Two cadences - the cheap local snapshot repaints every 2s,
+  the gh-backed peek runs every 30s. A failed gh poll renders "unknown this tick", never
+  "none", which would read as "nothing is blocked".
+
+  `floorSnapshot()` is now exported and shared with `sm floor`, so the board cannot drift
+  from what the CLI reports.
+
+- **`sm watch --daemon | --status | --stop`** - supervision that outlives the desk session.
+  The loop was already a daemon in everything but lifetime; this adds detach (reparented to
+  init, version-stable spawn target so a Homebrew upgrade cannot strand it), a log in the
+  inbox-STATE dir (never the watched inbox dir - fs.watch there would make every log line
+  wake every watcher), and a `mode` field on the armed marker that makes it a real
+  single-instance lock: a second daemon is refused, and a foreground `--loop` refuses to
+  clobber a live one.
+
+  **The desk seat is the baton.** The daemon acks only while no desk holds the seat; when
+  one does, it drops to a peek and the agent hooks own delivery. No new cursor, no config -
+  handover is safe both directions because the watermark and journal facts are shared. It
+  reads `readSeat`, never `hasSeat`: `hasSeat` also honours `SM_DESK=1` from the caller's
+  own env, which says nothing about whether a desk is sitting there, and trusting it would
+  silence delivery entirely. That trap is pinned by a test.
+
+- **`needs-input` supervision event** - a claimed slot parked on its agent's permission
+  prompt now surfaces. The agent plugin already recognised that shape (its `activity` op
+  returns `waiting`) and the gatherer already sampled it every tick, but classify only
+  ever used activity to ABSORB `stalled-working`, so a worker blocked on a prompt was
+  invisible. It is the one fleet state nothing resolves on its own: no report arrives, no
+  worker dies, the claim just sits. Surfaces on sight, then re-surfaces every
+  `NEEDS_INPUT_RESURFACE_MIN` so an unanswered prompt keeps nagging. Pure classify change,
+  no new IO.
+
+- **`sm watch --baseline`** - skip the surfaced watermark past everything currently in the
+  inbox, in one step. Found the hard way: a 266-report backlog drains at DIGEST_MAX per
+  ack, which through the Stop hook is one BLOCKED STOP per five events. `--clear` would
+  have done it but consumes the reports. Non-destructive; they stay readable via
+  `sm msg inbox`.
+
 - **`sm serve`** - a zero-dep node:http bridge on 127.0.0.1: the x-web command allowlist
   over one generic POST (the third registration of the argspec surface, after CLI and
   MCP), the ONE multiplexed SSE stream per tab (inbox/journal deltas resumable by

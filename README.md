@@ -256,9 +256,44 @@ sm doctor --fix          # run in the desk project: installs the watch hooks
 SM_DESK=1 claude         # launch the desk seat - only this session delivers
 ```
 
-Without `SM_DESK=1` the hooks are silent no-ops, so extra desk agents and workers never
-fight over delivery. A consecutive-block budget guarantees a broken check can never wedge
-a session.
+Already in a session you forgot to launch that way? Claim the seat in place instead of
+restarting:
+
+```
+sm watch --seat          # this session is the desk; --pid <n> if sm's parent is not it
+sm watch --unseat        # hand it back
+```
+
+The seat lives or dies with the pid that holds it, so a crashed desk frees it without a
+sweep. `sm floor` reports who holds it, because the failure mode is silent: an unseated
+desk looks exactly like a quiet fleet.
+
+A long-unwatched fleet arrives as a backlog, and the digest is capped - through the Stop
+hook that is one blocked stop per few events. Skip past it once:
+
+```
+sm watch --baseline      # stop looking back; the reports stay readable in sm msg inbox
+```
+
+Without a seat - env var or marker - the hooks are silent no-ops, so extra desk agents and
+workers never fight over delivery. A consecutive-block budget guarantees a broken check
+can never wedge a session.
+
+### The board
+
+`sm floor --board` paints a non-interactive fleet board - meant for a second pane beside
+the dispatcher shell, so "what is in progress" and "what is stuck" stop being questions
+you have to ask:
+
+```
+sm floor --board         # repaints until Ctrl-C; spawn it wherever you want it
+```
+
+Three sections, in the order a dispatcher needs them: what needs YOU, what is working
+(a slot sitting on a permission prompt sorts first), and which PRs are waiting on a
+person - grouped by reviewer, because five healthy-looking slots can still be one
+person's queue. It is read-only: it peeks, it never acks, so it cannot starve the
+daemon or the desk hooks.
 
 ## The cockpit bridge (sm serve)
 

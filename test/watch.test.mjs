@@ -7,9 +7,9 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REPO_NAME } from '../lib/constants.mjs';
-import { appendReport, readCursor } from '../lib/inbox.mjs';
+import { appendReport, readCursor, readInbox } from '../lib/inbox.mjs';
 import { readJournal } from '../lib/slots/journal.mjs';
-import { readArmed, runCheck, runHook, runWatchBlocking } from '../lib/commands/watch.mjs';
+import { cmdWatch, hasSeat, readArmed, readSeat, runCheck, runHook, runWatchBlocking } from '../lib/commands/watch.mjs';
 
 const quietWorld = () => ({ slots: [], workersA: {}, workersB: null, activity: {}, snapshotOk: true, prs: { ok: true, bySlot: {} } });
 
@@ -283,6 +283,223 @@ test('hook path: prompt-submit delivers as additionalContext, never blocks, igno
     if (realDesk === undefined)
       delete process.env.SM_DESK;
     else process.env.SM_DESK = realDesk;
+    cleanup(dirs);
+  }
+});
+
+test('desk seat: a claimed seat opens the hook path without SM_DESK, and dies with its session', async () => {
+  const dirs = fresh('seat');
+  const realDesk = process.env.SM_DESK;
+  try {
+    delete process.env.SM_DESK;
+    assert.equal(readSeat(REPO_NAME), null, 'no seat to start');
+    assert.equal(hasSeat(REPO_NAME), false);
+
+    // Baseline the backlog first, or the first ack spends itself setting the watermark
+    // instead of emitting - that is the check/ack contract, not a seat concern.
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() }));
+
+    // The gap this closes: unseated, the hook is silent and acks nothing, and before the
+    // seat file existed the ONLY way to open it was relaunching under SM_DESK=1.
+    appendReport(REPO_NAME, { slot: 'a', message: 'blocked: needs a desk' });
+    const before = readCursor(REPO_NAME, 'surfaced');
+    assert.deepEqual(await runHook({ type: 'stop', world: quietWorld() }), { exitCode: 0, out: '', errText: '' });
+    assert.equal(readCursor(REPO_NAME, 'surfaced'), before, 'unseated acks nothing');
+
+    // Claim it for a pid that is definitely alive - this process.
+    await silent(() => cmdWatch(['--seat', '--pid', String(process.pid)]));
+    const seat = readSeat(REPO_NAME);
+    assert.equal(seat.pid, process.pid);
+    assert.equal(hasSeat(REPO_NAME), true);
+
+    // Same event now blocks the stop, with no env var anywhere.
+    assert.equal(process.env.SM_DESK, undefined);
+    const blocked = await runHook({ type: 'stop', world: quietWorld() });
+    assert.equal(blocked.exitCode, 2);
+    assert.match(blocked.errText, /blocked: needs a desk/);
+    assert.ok(readCursor(REPO_NAME, 'surfaced') > before, 'seated delivery acks');
+
+    // A seat whose session is gone reads as unclaimed - no manual sweep, no stale seat
+    // silently holding delivery hostage after a crash.
+    writeFileSync(
+      join(`${dirs.inbox}-state`, `${REPO_NAME || 'default'}.desk-seat.json`),
+      `${JSON.stringify({ pid: 2147483646, startedAt: Date.now() })}\n`,
+    );
+    assert.equal(readSeat(REPO_NAME), null, 'dead holder = unclaimed');
+    assert.equal(hasSeat(REPO_NAME), false);
+
+    // ...and SM_DESK still works on its own, so every existing launcher is untouched.
+    process.env.SM_DESK = '1';
+    assert.equal(hasSeat(REPO_NAME), true);
+    delete process.env.SM_DESK;
+
+    // Release is idempotent and actually closes the gate.
+    await silent(() => cmdWatch(['--seat', '--pid', String(process.pid)]));
+    assert.equal(hasSeat(REPO_NAME), true);
+    await silent(() => cmdWatch(['--unseat']));
+    assert.equal(readSeat(REPO_NAME), null);
+    await silent(() => cmdWatch(['--unseat']));
+    assert.equal(hasSeat(REPO_NAME), false);
+  }
+  finally {
+    if (realDesk === undefined)
+      delete process.env.SM_DESK;
+    else process.env.SM_DESK = realDesk;
+    cleanup(dirs);
+  }
+});
+
+test('watch --baseline: skips the watermark past a stale backlog in one shot, non-destructively', async () => {
+  const dirs = fresh('baseline');
+  try {
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() })); // set an initial watermark
+    // A backlog bigger than one digest: draining via --ack alone would take several cycles,
+    // and through the Stop hook that is several blocked stops - the thing this avoids.
+    for (let index = 0; index < 12; index++)
+      appendReport(REPO_NAME, { slot: 'a', message: `blocked: stale ${index}` });
+
+    const { result: capped } = await silent(() => runCheck({ world: quietWorld() }));
+    assert.equal(capped.emitted.length, 5);
+    assert.equal(capped.overflow, 7); // 12 waiting, one digest cannot hold them
+
+    await silent(() => cmdWatch(['--baseline']));
+
+    // Nothing left to surface, in ONE step rather than three ack cycles.
+    const { result: after } = await silent(() => runCheck({ ack: true, world: quietWorld() }));
+    assert.equal(after.exitCode, 3);
+    // Non-destructive: the reports are still there to read.
+    assert.equal(readInbox(REPO_NAME).length, 13);
+    // And a genuinely new report still surfaces afterwards.
+    appendReport(REPO_NAME, { slot: 'b', message: 'blocked: fresh one' });
+    const { result: fresh3 } = await silent(() => runCheck({ ack: true, world: quietWorld() }));
+    assert.deepEqual(fresh3.emitted.map(event => event.message), ['blocked: fresh one']);
+  }
+  finally {
+    cleanup(dirs);
+  }
+});
+
+test('blocking watch survives a failing tick instead of ending supervision silently', async () => {
+  const dirs = fresh('resilient');
+  const realError = console.error;
+  const errs = [];
+  console.error = line => errs.push(String(line));
+  try {
+    // A world that throws once, then behaves. Before the per-tick catch, the throw
+    // escaped the while and runWatchBlocking returned as if nothing was wrong - a dead
+    // watch is indistinguishable from a quiet fleet, which is why this matters.
+    let ticks = 0;
+    const flaky = () => {
+      ticks += 1;
+      if (ticks === 1)
+        throw new Error('gh exploded');
+      return quietWorld();
+    };
+    const boom = {
+      get slots() {
+        return flaky().slots;
+      },
+      workersA: {},
+      workersB: null,
+      activity: {},
+      snapshotOk: true,
+      prs: { ok: true, bySlot: {} },
+    };
+
+    // Baseline first: the very first ack sets the watermark rather than emitting, and
+    // would otherwise swallow the report this test is waiting on.
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() }));
+
+    // The report must land WHILE the loop waits: waitForReports baselines on the newest
+    // entry at call time, so anything appended beforehand is not "new" and the wait
+    // would simply run to timeout.
+    const landing = setTimeout(appendReport, 150, REPO_NAME, { slot: 'a', message: 'blocked: after the bad tick' });
+    const started = Date.now();
+    const { result: code } = await silent(() => runWatchBlocking({ loop: false, timeoutMs: 6000, world: boom }));
+    const elapsed = Date.now() - started;
+    clearTimeout(landing);
+
+    assert.equal(code, 0, 'the watch recovered and still surfaced the report');
+    assert.ok(ticks > 1, 'it ticked again after the throw');
+    assert.match(errs.join('\n'), /check failed, retrying/);
+    // The retry must SKIP the wait. Without that, recovery costs a full waitForReports
+    // window (the 6s timeout here) because the failed tick already consumed the report
+    // that would have woken it - the event sits stranded behind a wait for an unrelated
+    // one. Anything near the timeout means the skip regressed.
+    assert.ok(elapsed < 3000, `recovery should not wait out the window (took ${elapsed}ms)`);
+    assert.equal(readArmed(REPO_NAME), null, 'and it still cleared its armed marker');
+  }
+  finally {
+    console.error = realError;
+    cleanup(dirs);
+  }
+});
+
+test('seat baton: the daemon peeks while a desk holds the seat, and delivers when it does not', async () => {
+  const dirs = fresh('baton');
+  const realDesk = process.env.SM_DESK;
+  try {
+    delete process.env.SM_DESK;
+    appendReport(REPO_NAME, { slot: 'z', message: 'seed' });
+    await silent(() => runCheck({ ack: true, world: quietWorld() })); // baseline
+
+    // Desk seated: the hook path owns delivery, so a daemon tick must NOT consume the
+    // event. Two acking watchers split events and the loser sees a quiet fleet - the
+    // failure is silence, which is why this is pinned rather than left to review.
+    await silent(() => cmdWatch(['--seat', '--pid', String(process.pid)]));
+    const before = readCursor(REPO_NAME, 'surfaced');
+    const landingA = setTimeout(appendReport, 100, REPO_NAME, { slot: 'a', message: 'blocked: while seated' });
+    await silent(() => runWatchBlocking({ loop: false, timeoutMs: 4000, world: quietWorld(), mode: 'daemon' }));
+    clearTimeout(landingA);
+    assert.equal(readCursor(REPO_NAME, 'surfaced'), before, 'seated: the daemon peeked and acked nothing');
+
+    // Seat released: the daemon is now the only reader, so it delivers.
+    await silent(() => cmdWatch(['--unseat']));
+    const landingB = setTimeout(appendReport, 100, REPO_NAME, { slot: 'b', message: 'blocked: while unseated' });
+    await silent(() => runWatchBlocking({ loop: false, timeoutMs: 4000, world: quietWorld(), mode: 'daemon' }));
+    clearTimeout(landingB);
+    assert.ok(readCursor(REPO_NAME, 'surfaced') > before, 'unseated: the daemon acked');
+
+    // THE hasSeat TRAP, pinned. SM_DESK=1 in the DAEMON's own env says nothing about
+    // whether a desk is sitting anywhere - hasSeat() would read the caller's env and
+    // conclude a desk exists, so the daemon would stop acking and nobody would deliver.
+    // Only a seat FILE means a desk. This is why the baton calls readSeat, not hasSeat.
+    process.env.SM_DESK = '1';
+    const beforeTrap = readCursor(REPO_NAME, 'surfaced');
+    const landingC = setTimeout(appendReport, 100, REPO_NAME, { slot: 'c', message: 'blocked: SM_DESK set, no seat file' });
+    await silent(() => runWatchBlocking({ loop: false, timeoutMs: 4000, world: quietWorld(), mode: 'daemon' }));
+    clearTimeout(landingC);
+    delete process.env.SM_DESK;
+    assert.ok(
+      readCursor(REPO_NAME, 'surfaced') > beforeTrap,
+      'SM_DESK in the daemon env must NOT be read as a seated desk - it would silence delivery',
+    );
+  }
+  finally {
+    if (realDesk === undefined)
+      delete process.env.SM_DESK;
+    else process.env.SM_DESK = realDesk;
+    cleanup(dirs);
+  }
+});
+
+test('armed marker carries its mode, so a foreground loop cannot clobber a live daemon', async () => {
+  const dirs = fresh('mode');
+  try {
+    const landing = setTimeout(appendReport, 100, REPO_NAME, { slot: 'a', message: 'done: x' });
+    const run = runWatchBlocking({ loop: true, timeoutMs: 900, world: quietWorld(), mode: 'daemon' });
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const armed = readArmed(REPO_NAME);
+    assert.equal(armed.mode, 'daemon', 'the marker says what kind of watch holds it');
+    assert.equal(armed.pid, process.pid);
+    await run;
+    clearTimeout(landing);
+    assert.equal(readArmed(REPO_NAME), null, 'and it is cleared on exit');
+  }
+  finally {
     cleanup(dirs);
   }
 });

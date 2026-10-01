@@ -8,14 +8,38 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "watch": { "type": "boolean", "description": "redraw the snapshot on an interval until Ctrl-C (alias: --follow)" },
-    "follow": { "type": "boolean", "description": "alias for --watch (one word works across ls/ps/logs/floor)" }
+    "watch": {
+      "type": "boolean",
+      "description": "redraw the snapshot on an interval until Ctrl-C (alias: --follow)"
+    },
+    "follow": {
+      "type": "boolean",
+      "description": "alias for --watch (one word works across ls/ps/logs/floor)"
+    },
+    "board": {
+      "type": "boolean",
+      "description": "non-interactive fleet board for a second desk pane: what needs you, what is working, which PRs are waiting on a human. Repaints until Ctrl-C; never acks."
+    }
   },
   "x-cli": {
-    "path": ["floor"],
+    "path": [
+      "floor"
+    ],
     "args": {
-      "watch": { "flag": "--watch", "mcpHidden": true, "webHidden": true },
-      "follow": { "flag": "--follow", "mcpHidden": true, "webHidden": true }
+      "watch": {
+        "flag": "--watch",
+        "mcpHidden": true,
+        "webHidden": true
+      },
+      "follow": {
+        "flag": "--follow",
+        "mcpHidden": true,
+        "webHidden": true
+      },
+      "board": {
+        "flag": "--board",
+        "webHidden": true
+      }
     }
   }
 }

@@ -187,3 +187,51 @@ test('idempotence: same evidence in, same classification out - twice', () => {
 test('classify demands a clock: missing now throws (programming error, not policy)', () => {
   assert.throws(() => classify({ entries: [] }), /now/);
 });
+
+test('needs-input: a claimed slot on a permission prompt surfaces, dedups by window, and needs a live snapshot', () => {
+  const claimed = [{ slot: 'a', claim: { ts: NOW - 10 * MIN, task: 'fix the resolver' } }];
+
+  // The gap this closes: activity was only ever used to ABSORB stalled-working, so a
+  // worker parked on its agent's permission prompt was invisible to supervision. It is
+  // the one state nothing resolves on its own - no report lands, no worker dies.
+  const { surface } = classify(ev({ slots: claimed, activity: { a: 'waiting' } }));
+  const event = surface.find(item => item.type === 'needs-input');
+  assert.ok(event, 'a waiting claimed slot surfaces');
+  assert.equal(event.slot, 'a');
+  assert.equal(event.task, 'fix the resolver', 'carries the claim task so the digest is actionable');
+
+  // An unclaimed slot sitting at a prompt is not the dispatcher's problem.
+  assert.equal(
+    classify(ev({ slots: [{ slot: 'a', claim: null }], activity: { a: 'waiting' } }))
+      .surface.filter(item => item.type === 'needs-input').length,
+    0,
+    'no claim, no event',
+  );
+
+  // Any other activity is not a prompt.
+  for (const act of ['working', 'idle', 'error', undefined]) {
+    assert.equal(
+      classify(ev({ slots: claimed, activity: { a: act } })).surface.filter(item => item.type === 'needs-input').length,
+      0,
+      `activity ${act} must not surface needs-input`,
+    );
+  }
+
+  // A failed mux snapshot must never fabricate one - same rule crash already follows.
+  assert.equal(
+    classify(ev({ slots: claimed, activity: { a: 'waiting' }, snapshotOk: false }))
+      .surface.filter(item => item.type === 'needs-input').length,
+    0,
+    'no pane evidence, no pane verdict',
+  );
+
+  // Windowed dedup: a recent surfaced fact absorbs, an old one lets it re-surface, so a
+  // prompt nobody answers keeps nagging instead of being silently forgotten.
+  const fact = ts => [{ type: 'surfaced', slot: 'a', reason: 'needs-input', ts }];
+  const recent = classify(ev({ slots: claimed, activity: { a: 'waiting' }, journal: fact(NOW - 1 * MIN) }));
+  assert.equal(recent.surface.filter(item => item.type === 'needs-input').length, 0);
+  assert.ok(recent.absorbed.some(item => item.type === 'needs-input'), 'and says why it was absorbed');
+
+  const stale = classify(ev({ slots: claimed, activity: { a: 'waiting' }, journal: fact(NOW - 60 * MIN) }));
+  assert.equal(stale.surface.filter(item => item.type === 'needs-input').length, 1, 'past the window it nags again');
+});

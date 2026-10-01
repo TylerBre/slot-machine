@@ -5,24 +5,121 @@
   "description": "Dispatcher supervision: gather evidence, classify (absorb/surface), print a digest. --check peeks with no state change; --check --ack additionally journals surfaced/delivered facts and advances the surfaced watermark for emitted events; bare watch blocks until something surfaces. Exit 0 = digest emitted, 3 = nothing to report.",
   "x-mcp": false,
   "x-web": true,
-  "x-exit": { "3": "nothing-to-report" },
+  "x-exit": {
+    "3": "nothing-to-report"
+  },
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "check": { "type": "boolean", "description": "one-shot: classify current state, print the digest, exit (0 digest / 3 nothing)" },
-    "ack": { "type": "boolean", "description": "with --check: durably surface - journal facts + advance the surfaced watermark for emitted events" },
-    "hook": { "type": "string", "description": "agent-hook protocol mode (stop | prompt-submit): seat-gated output shaping, wired by the agent delivery capability" },
-    "loop": { "type": "boolean", "description": "blocking mode: keep watching and printing digests until the timeout" },
-    "timeout": { "type": "integer", "description": "blocking mode: max seconds to wait before exiting 3" }
+    "check": {
+      "type": "boolean",
+      "description": "one-shot: classify current state, print the digest, exit (0 digest / 3 nothing)"
+    },
+    "ack": {
+      "type": "boolean",
+      "description": "with --check: durably surface - journal facts + advance the surfaced watermark for emitted events"
+    },
+    "hook": {
+      "type": "string",
+      "description": "agent-hook protocol mode (stop | prompt-submit): seat-gated output shaping, wired by the agent delivery capability"
+    },
+    "loop": {
+      "type": "boolean",
+      "description": "blocking mode: keep watching and printing digests until the timeout"
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "blocking mode: max seconds to wait before exiting 3"
+    },
+    "seat": {
+      "type": "boolean",
+      "description": "claim the desk seat for this repo from an already-running session, so the hook path delivers without relaunching under SM_DESK=1"
+    },
+    "unseat": {
+      "type": "boolean",
+      "description": "release this repo's desk seat"
+    },
+    "pid": {
+      "type": "integer",
+      "description": "with --seat: the session pid whose liveness holds the seat (default: this process's parent)"
+    },
+    "baseline": {
+      "type": "boolean",
+      "description": "skip the surfaced watermark past every report currently in the inbox - stops a stale backlog from draining one digest (or one blocked stop) at a time; non-destructive, reports stay readable via sm msg inbox"
+    },
+    "daemon": {
+      "type": "boolean",
+      "description": "detach and supervise until stopped - survives the desk session closing"
+    },
+    "status": {
+      "type": "boolean",
+      "description": "is a watch armed for this repo? pid, mode, uptime, and who holds the desk seat"
+    },
+    "stop": {
+      "type": "boolean",
+      "description": "signal the armed daemon for this repo to exit"
+    },
+    "daemon-child": {
+      "type": "boolean",
+      "description": "internal: marks the detached child so it arms as mode=daemon (not for direct use)"
+    }
   },
   "x-cli": {
-    "path": ["watch"],
+    "path": [
+      "watch"
+    ],
     "args": {
-      "check": { "flag": "--check" },
-      "ack": { "flag": "--ack" },
-      "hook": { "flag": "--hook", "webHidden": true },
-      "loop": { "flag": "--loop", "webHidden": true },
-      "timeout": { "flag": "--timeout", "short": "t", "webHidden": true }
+      "check": {
+        "flag": "--check"
+      },
+      "ack": {
+        "flag": "--ack"
+      },
+      "hook": {
+        "flag": "--hook",
+        "webHidden": true
+      },
+      "loop": {
+        "flag": "--loop",
+        "webHidden": true
+      },
+      "timeout": {
+        "flag": "--timeout",
+        "short": "t",
+        "webHidden": true
+      },
+      "seat": {
+        "flag": "--seat",
+        "webHidden": true
+      },
+      "unseat": {
+        "flag": "--unseat",
+        "webHidden": true
+      },
+      "pid": {
+        "flag": "--pid",
+        "webHidden": true
+      },
+      "baseline": {
+        "flag": "--baseline",
+        "webHidden": true
+      },
+      "daemon": {
+        "flag": "--daemon",
+        "webHidden": true
+      },
+      "status": {
+        "flag": "--status",
+        "webHidden": true
+      },
+      "stop": {
+        "flag": "--stop",
+        "webHidden": true
+      },
+      "daemon-child": {
+        "flag": "--daemon-child",
+        "webHidden": true
+      }
     }
   }
 }
