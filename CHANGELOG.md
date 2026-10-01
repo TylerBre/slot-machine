@@ -6,6 +6,8 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-01
+
 The web-cockpit bridge: sm gains an HTTP+SSE surface for the dispatcher cockpit
 (sm-cockpit, a separate repo). The core stays zero-dep; the web app never touches sm
 internals - everything rides the argspec-derived contract in docs/http-api.md.
