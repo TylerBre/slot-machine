@@ -279,6 +279,22 @@ Without a seat - env var or marker - the hooks are silent no-ops, so extra desk 
 workers never fight over delivery. A consecutive-block budget guarantees a broken check
 can never wedge a session.
 
+### The board
+
+`sm floor --board` paints a non-interactive fleet board - meant for a second pane beside
+the dispatcher shell, so "what is in progress" and "what is stuck" stop being questions
+you have to ask:
+
+```
+sm floor --board         # repaints until Ctrl-C; spawn it wherever you want it
+```
+
+Three sections, in the order a dispatcher needs them: what needs YOU, what is working
+(a slot sitting on a permission prompt sorts first), and which PRs are waiting on a
+person - grouped by reviewer, because five healthy-looking slots can still be one
+person's queue. It is read-only: it peeks, it never acks, so it cannot starve the
+daemon or the desk hooks.
+
 ## The cockpit bridge (sm serve)
 
 `sm serve` exposes the fleet to a browser: the same command surface the CLI and MCP

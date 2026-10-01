@@ -20,6 +20,22 @@ internals - everything rides the argspec-derived contract in docs/http-api.md.
   is indistinguishable from a quiet fleet - the failure this closes. Refines the "v1 marker"
   open question logged in docs/superpowers/plans/2026-08-04-supervision.md.
 
+- **`sm floor --board`** - a non-interactive fleet board for the desk's second pane.
+  Zero-dep and hand-rolled: alternate screen, home-and-clear-per-line repaint (no flicker,
+  no scrollback eaten), restore on exit and on signal. It answers the question a dispatcher
+  actually repeats - not "what happened" but "what is stuck, and on whom" - so NEEDS YOU is
+  first and human-blocked PRs get their own section, grouped by reviewer, because five
+  slots each individually fine can still be one person's queue.
+
+  READ-ONLY by construction: it renders a classify PEEK, never acks, never advances the
+  read cursor. A consuming board would starve the daemon and the hook path, and the failure
+  would look like a quiet fleet. Two cadences - the cheap local snapshot repaints every 2s,
+  the gh-backed peek runs every 30s. A failed gh poll renders "unknown this tick", never
+  "none", which would read as "nothing is blocked".
+
+  `floorSnapshot()` is now exported and shared with `sm floor`, so the board cannot drift
+  from what the CLI reports.
+
 - **`sm watch --daemon | --status | --stop`** - supervision that outlives the desk session.
   The loop was already a daemon in everything but lifetime; this adds detach (reparented to
   init, version-stable spawn target so a Homebrew upgrade cannot strand it), a log in the
